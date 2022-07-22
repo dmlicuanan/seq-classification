@@ -131,7 +131,7 @@ sink()
 ################
 # revised code for laptop # 27204
 sink("log.txt", append = TRUE)
-for(i in 28003:111160) {
+for(i in 35986:111160) {
   # check if taxon in BOLD before proceeding
   taxon <- list[i]
   x <- bold_tax_name(taxon)
