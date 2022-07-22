@@ -1,19 +1,18 @@
-# 17 July 2022
-# download sequences from BOLD
-# https://docs.ropensci.org/bold/#large-data
+# this script is for downloading fasta files from BOLD
+# gene: COI 
+# species: marine eukaryotes
+# see https://docs.ropensci.org/bold/#large-data 
 
 # install packages
 install.packages("bold")
-install.packages("taxize")
 # load packages
 library(bold)
-library(taxize)
-library(stringr)
 
-# taxize authenthication -- run everytime
-options(ENTREZ_KEY = "7d21c9bc180e2c7f4c118b010e6f236f3008")
+# taxize authenthication -- run everytime: but needed only for use of taxize package
+# API key from amlicuanan account at https://www.ncbi.nlm.nih.gov/account/settings/
+# options(ENTREZ_KEY = "7d21c9bc180e2c7f4c118b010e6f236f3008")
 
-# set working directory
+# set working directory to where wormstaxlist is located
 setwd("D:/Documents/NGS/entrez/")
 # read-in taxa list
 wormstaxlist <- readLines("wormstaxlist")
@@ -57,9 +56,9 @@ get_fasta <- function(taxon, filename) {
 # assign list of taxa
 list <- wormstaxlist
 
+# 1) for laptop run (1st half of species list)
 sink("log.txt", append = TRUE)
-# for-loop length(list)
-for(i in 24991:length(list)) {
+for(i in 24991:111160) {
   # check if taxon in BOLD before proceeding
   taxon <- list[i]
   x <- bold_tax_name(taxon)
@@ -77,8 +76,23 @@ for(i in 24991:length(list)) {
 sink()
 
 # Error in curl::curl_fetch_memory(x$url$url, handle = x$url$handle) : 
-# Timeout was reached: [v4.boldsystems.org] Operation timed out after # 10015 milliseconds with 0 out of 0 bytes 
+# Timeout was reached: [v4.boldsystems.org] Operation timed out after # 10015 milliseconds with 0 out of 0 bytes received
 
-# testing if can record changes to files.
-
-# will remove "received in line 80
+# 2) for 172 PC run (start at 2nd half of species list)
+sink("log_172.txt", append = TRUE)
+for(i in 111161:length(list)) {
+  # check if taxon in BOLD before proceeding
+  taxon <- list[i]
+  x <- bold_tax_name(taxon)
+  
+  # only proceed if taxon is in BOLD 
+  if(dim(x)[2] > 2) {
+    # progress
+    cat("Processing", taxon, ":", i, "of", length(list), "\n")
+    
+    tryCatch({
+      get_fasta(taxon = taxon, filename = paste0(gsub(" ", "_", taxon), "_bold.fasta"))
+    }, error = function(e) {cat("ERROR :", conditionMessage(e), "\n")})
+  } else { NULL }
+}
+sink()
