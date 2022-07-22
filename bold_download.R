@@ -15,7 +15,7 @@ library(bold)
 # set working directory to where wormstaxlist is located
 setwd("D:/Documents/NGS/entrez/")
 # read-in taxa list
-wormstaxlist <- readLines("wormstaxlist")
+wormstaxlist <- readLines("wormstaxlist", encoding = "UTF-8")
 # arrange alphabetically
 wormstaxlist <- wormstaxlist[order(wormstaxlist)]
 # remove "'" since it causes Internal Server Error (HTTP 500) in BOLD
