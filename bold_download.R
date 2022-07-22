@@ -77,4 +77,8 @@ for(i in 24991:length(list)) {
 sink()
 
 # Error in curl::curl_fetch_memory(x$url$url, handle = x$url$handle) : 
-# Timeout was reached: [v4.boldsystems.org] Operation timed out after # 10015 milliseconds with 0 out of 0 bytes received
+# Timeout was reached: [v4.boldsystems.org] Operation timed out after # 10015 milliseconds with 0 out of 0 bytes 
+
+# testing if can record changes to files.
+
+# will remove "received in line 80
