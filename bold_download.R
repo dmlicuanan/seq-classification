@@ -55,6 +55,7 @@ get_fasta <- function(taxon, filename) {
 
 # assign list of taxa
 list <- wormstaxlist
+rm(wormstaxlist)
 
 # 1) for laptop run (1st half of species list)
 sink("log.txt", append = TRUE)
