@@ -29,8 +29,8 @@ time parallel -j 4 --delay 0.34 --keep-order 'esearch -db nuccore -query {} | xt
 paste wormstaxlist_counts ./input/wormstaxlist_fin | awk '$1 > 0' | cut -f 2- > ./input/wormstaxlist_whits
 
 # download GenBank flat files for each species
-time parallel -j 4 --delay 0.34 'esearch -db nuccore -query {} | efetch -format gb > ./wormstaxlist_gb/{=s/ /_/;s/\[.*//;s/ //;=}.fas' :::: ./input/wormstaxlist_whits
+time parallel -j 4 --delay 0.34 'esearch -db nuccore -query {} | efetch -format gb > ./wormstaxlist_gb/{=s/ /_/;s/\[.*//;s/ //;=}.gb' :::: ./input/wormstaxlist_whits
 
 # download fasta file for each species
-time parallel -j 4 --delay 0.34 'esearch -db nuccore -query {} | efetch -format gb > ./wormstaxlist_fasta/{=s/ /_/;s/\[.*//;s/ //;=}.fas' :::: ./input/wormstaxlist_whits
+time parallel -j 4 --delay 0.34 'esearch -db nuccore -query {} | efetch -format fasta > ./wormstaxlist_fasta/{=s/ /_/;s/\[.*//;s/ //;=}.fas' :::: ./input/wormstaxlist_whits
 # note: for 455 species, this took realtime: 20m15.668s
