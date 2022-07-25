@@ -122,6 +122,8 @@ get_fasta <- function(taxon, filename) {
 # version 2 of for-loop
 # log.txt for laptop run; log_172.txt for 172 PC run
 sink("log.txt", append = TRUE)
+# log_rerun.txt for after double-checking errors
+# sink("log_rerun.txt", append = TRUE)
 for(i in 1:length(list)) {
   # check if taxon in BOLD before proceeding
   taxon <- list[i]
@@ -140,3 +142,87 @@ for(i in 1:length(list)) {
 }
 sink()
 
+
+
+
+
+# check errors in log.txt and log_172.txt 
+# to see if some species fastas were missed due to errors
+# bold package is needed, as well as version 2 of get_fasta above
+
+# set working directory to path of log files
+setwd("D:/Documents/NGS/entrez/bold_fastas")
+
+# merge log.txt and log_172.txt in one object
+log <- c(readLines("log.txt"), readLines("log_172.txt"))
+
+# find all occurrences of errors
+unique(log[grep("^Processing", log, invert = TRUE)])
+# [1] "ERROR : BOLD servers returned an error - we're not sure what happened"                
+# [2] " try a smaller query - or open an issue and we'll try to help "                       
+# [3] "ERROR : $ operator is invalid for atomic vectors "                                    
+# [4] "ERROR : Operation was aborted by an application callback "                            
+# [5] "ERROR : Send failure: Connection was reset "                                          
+# [6] "ERROR : Failure when receiving data from the peer "                                   
+# [7] "ERROR : incomplete final line found by readTableHeader on 'text' "                    
+# [8] "ERROR : subscript out of bounds "                                                     
+# [9] "ERROR : Bad Gateway (HTTP 502) "                                                      
+# [10] "ERROR : Timeout was reached: [v4.boldsystems.org] Send failure: Connection was reset "
+
+# get species succeeded by "ERROR" messages
+# indices of lines before error messages:
+err <- grep("ERROR", log) - 1
+# check if all contain a species name
+all(grepl("Processing", log[err]))
+
+# extract species for re-run/double-checking; contains 1205 species
+list <- gsub("^Processing (.+) :.*", "\\1", log[err])
+
+# re-run version 2 of get_fasta function above
+# re-run version 2 of for-loop above, but use "log_rerun.txt" as sink
+# index of species printed in "log_rerun.txt" is not the same as their index in wormstaxlist
+
+# checking of log_rerun.txt
+log <- readLines("log_rerun.txt")
+
+# only two additional fastas were downloaded: 
+# Peltogasterella_gracilis_bold.fasta and "Parapterois_heterura_bold.fasta"
+# this means that not all species printed in log files have corresponding fastas
+# for example: 
+taxon <- gsub("^Processing (.+) :.*", "\\1", log[1])
+# it satisfies if statement in for-loop -- hence it is printed in log file
+x <- bold_tax_name(taxon)
+s <- bold_stats(taxon)
+dim(x)[2] > 2 & s$total_records > 1
+# but it does not satisfy if statement in get_fasta, which comes after cat command:
+x <- bold_seqspec(taxon = taxon)
+!is.atomic(x) & ("COI-5P" %in% x$markercode | "COI-3P" %in% x$markercode)
+
+# checking of log_rerun.txt for further errors
+unique(log[grep("^Processing", log, invert = TRUE)])
+# [1] "ERROR : incomplete final line found by readTableHeader on 'text' "
+
+# get species succeeded by "ERROR" messages
+err <- grep("ERROR", log) - 1
+# extract species for which error occurred
+taxa <- gsub("^Processing (.+) :.*", "\\1", log[err])
+taxon <- taxa[2]
+
+# find where error occurs: 
+x <- bold_tax_name(taxon)
+s <- bold_stats(taxon)
+dim(x)[2] > 2 & s$total_records > 1
+# error occurs here for both species, hence no need for further re-run:
+x <- bold_seqspec(taxon = taxon)
+
+# final notes: 
+# format of BOLD fastas are as follows:
+# >processid|species|markercode|genbank_accession
+# processid = BOLD Process IDs are unique codes automatically generated for each new record added to a project. They serve to connect specimen information, such as taxonomy, collection data and images, to the DNA barcode sequence for that specimen.
+
+# sample:
+# >GBMIN123652-17|Parapterois heterura|COI-5P|KP267594
+# CCTGTATCTGGTATTTGGTGCCTGAGCCGGCATAGTAGGCACAGCCTTAAGCCTACTTATTCGAGCAGAGCTTAGTCAACCAGGCGCTCTATTGGGAGACGACCAAATTTACAATGTAATTGTTACAGCACACGCTTTTGTAATAATTTTCTTTATAGTAATACCAATTATGATTGGGGGATTTGGAAATTGACTTATCCCACTAATGATCGGAGCCCCAGACATGGCATTCCCCCGAATAAATAATATGAGCTTCTGACTCTTGCCGCCCTCTTTCCTCCTCCTCCTTGCCTCTTCAGGTGTTGAAGCAGGAGCCGGAACAGGATGAACCGTTTACCCGCCCCTAGCGGGTAATCTTGCCCACGCAGGAGCATCCGTAGATTTAACAATCTTCTCTCTCCATTTAGCCGGAATTTCATCGATTCTGGGGGCAATCAACTTCATTACAACAATCATTAACATGAAACCCCCAGCGATTTCCCAGTACCAAACACCTCTATTTGTGTGGGCTGTACTGATTACTGCGGTACTTTTACTTCTCTCACTTCCAGTCCTCGCCGCTGGCATTACAATACTACTCACAGATCGAAACCTTAATACTACTTTCTTCGACCCGGCGGGAGGGGGAGACCCAATTCTGTACCAACACCTTTTC
+
+# total number of fastas = 22350
+length(list.files(pattern = "\\.fasta$"))
