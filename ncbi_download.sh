@@ -9,11 +9,11 @@
 # it includes species under kingdoms Fungi, Animalia, Chromista, Protozoa, and Plantae
 # it is restricted to species with "accepted" taxonomicStatus
 
+
+
+
+
 ########## version 1 -- last edit 22/07/2022
-
-
-
-
 
 # set working directory (OneDrive)
 cd /mnt/c/Users/Ardea\ Licuanan/OneDrive/2022_kraken/
@@ -117,3 +117,57 @@ export -f mydownload
 # run in parallel (10 jobs at a time, delayed start of 1.1 seconds)
 # save errors to log_ncbi.txt
 time parallel -j 10 --delay 1.1 mydownload :::: subset 2>&1 | tee -a log_ncbi.txt
+
+
+
+
+########## version 2 -- last edit 29/07/2022
+
+# set working directory (OneDrive)
+cd /mnt/c/Users/Ardea\ Licuanan/OneDrive/2022_kraken/
+
+# use API key of amlicuanan@alum.up.edu.ph 
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# other API keys:
+# 7d21c9bc180e2c7f4c118b010e6f236f3008 
+# f4aef0d264bef47873c8c44329570bda3d08 
+# 532b235a5e1021b4e209f1d22f6b69258e08 
+# bfeb59eb00909bc3522de6eb2214bd769508 
+# beccc4a5d3d81297a8625322e2cce745a508 
+# c0f0673298193bfbb7dfacb8b362375a2008 
+
+# create directory where GenBank files will be saved:
+mkdir wormstaxlist_gb
+
+# check taxa with special characters 
+# all special characters must be URL encoded -- https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESearch
+grep -v "^[a-zA-Z -.]*$" ./input/wormstaxlist 
+
+# remove strings [sensu lato] and (incertae sedis) + characters × and ,
+# delete lines with [non-Uristidae]
+# convert all characters to ascii
+# remove single and double quotes
+sed -e "s/\( \[sensu lato\]\| (incertae sedis)\|[×,]\)//" ./input/wormstaxlist | sed '/\[non-Uristidae\]/d' | iconv -f utf-8 -t ascii//translit | tr -d \'\" > wormstaxlist_cleaned
+# check if all special characters are removed
+grep -v "^[a-zA-Z -.]*$" wormstaxlist_cleaned 
+
+# add FIELDS to each line in taxa list
+sed 's/$/ [ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' wormstaxlist_cleaned > wormstaxlist_fin
+
+# create function for downloading GB flat file
+mydownload() {
+	query="$1"
+	IFS=$'\n'
+	search=$(esearch -db nuccore -query "$query") 
+	count=$(echo "$search" | xtract -pattern Count -element Count)
+	if [ $count -gt 0 ]
+	then 
+	filename=$(echo "$query" | sed 's/ /_/;s/\[.*//;s/ //')
+	echo "$search" | efetch -format gb > ./wormstaxlist_gb/${filename}_ncbi.gb
+	fi	
+	}
+export -f mydownload
+
+# run in parallel (10 jobs at a time, delayed start of 1.1 seconds)
+# save errors to log_ncbi.txt
+time parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin 2>&1 | tee -a log_ncbi.txt
