@@ -224,7 +224,7 @@ export -f mydownload
 time parallel -j 10 --delay 1.1 mydownload :::: ./wormstaxlist_gb/subsets/subset.ab 2>&1 | tee -a ./wormstaxlist_gb/subsets/log_ncbi_ab.txt 
 # 8/1/2022
 # subset.aa 10:04 AM (186m34.434s)
-# subset.ab 1:27 PM (95m51.774s) only 1612 downloaded; re-run on 8/8/2022 6:04 PM (197m39.768s) 2782 downloaded after re-run
+# subset.ab 1:27 PM (95m51.774s) only 1612 downloaded; re-run on 8/8/2022 6:04 PM (197m39.768s) 2782 downloaded after re-runs
 # subset.aw 6:26 PM (45m14.437s)
 # subset.ac 7:19 PM (195m9.809s)
 # subset.ad 10:42 PM (195m8.691s)
@@ -316,13 +316,42 @@ parallel -j 10 --delay 1.1 --keep-order 'esearch -db nuccore -query {} | xtract 
 # check how many species with hits were missed in first run (1162 species)
 awk '$1 > 0' counts_ab_check | wc -l
 
+# need confirmation that the rest of species (222,316-31,689=190,627) in wormstaxlist_fin have 0 hits
+cd /mnt/d/Documents/NGS/entrez/wormstaxlist_gb/
+# create list of species with hits, then exclude those from wormstaxlist_fin
+find ./subset.*/ -name "*_ncbi.gb" | cut -d \/ -f 3 | sed 's/_/ /;s/_ncbi.gb//;s/$/ [ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' > /mnt/d/Documents/NGS/entrez/wormstaxlist_fin_whits
 
+# create list of species with hits, then exclude those from wormstaxlist_fin
+find ./subset.*/ -name "*_ncbi.gb" | cut -d \/ -f 3 | sed 's/_/ /;s/_ncbi.gb//' > /mnt/d/Documents/NGS/entrez/wormstaxlist_fin_whits
 
+# create list of species that supposedly have no hits
+cd /mnt/d/Documents/NGS/entrez/
+# using whole words (-w) from file (-f) wormstaxlist_fin_whits, select non-matching lines (-v)
+grep -v -w -f wormstaxlist_fin_whits wormstaxlist_fin > wormstaxlist_fin_for_counts
 
+# create function for checking hits per species
+hitcount() {
+query="$1"
+IFS=$'\n'
+count=$(esearch -db nuccore -query "$query" | xtract -pattern Count -element Count) 
+spec=$(echo "$query" | cut -d \[ -f 1)
+echo "$count $spec" >> counts_wormstaxlist_fin_for_counts
+}
+export -f hitcount
 
-# test 
-esearch -db nuccore -query "Amphiporus cruentatus [ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])" | xtract -pattern Count -element Count
+# initial run started 2:08 PM 2022/08/09
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+parallel -j 10 --delay 1 --keep-order hitcount :::: wormstaxlist_fin_for_counts 2>&1 | tee -a log_counts.txt
 
+# there are duplicates in wormstaxlist_fin_for_counts (190,627); we remove those without sorting:
+cat -n wormstaxlist_fin_for_counts | sort -u -k 2 | sort -n | cut -f 2- > wormstaxlist_fin_for_counts_uniq
+# there are 190,388 unique entries
 
-
-
+# run codes below for all successive runs:
+# reduce unique species in wormstaxlist_fin_for_counts to remove those which have already have counts
+# remove count in counts_wormstaxlist_fin_for_counts
+# append species with [ORGN] to be more specific in grep
+# get list of (unique) species to input as file of fixed-strings in (inverted) grep
+grep -v -w -F -f <(cut -d ' ' -f 2- counts_wormstaxlist_fin_for_counts | sed 's/$/\[ORGN\]/' | sort -u) wormstaxlist_fin_for_counts_uniq > wormstaxlist_fin_for_counts_reduced
+# execute hitcount function:
+parallel -j 10 --delay 1 --keep-order hitcount :::: wormstaxlist_fin_for_counts_reduced 2>&1 | tee -a log_counts.txt 
