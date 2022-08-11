@@ -389,8 +389,58 @@ comm <(grep -v '^[0-9]' counts_wormstaxlist_fin_for_counts | sed 's/^[[:space:]]
 comm <(sed 's/ \[ORGN.*//' wormstaxlist_fin_for_counts | sort -u) <(grep '^[0-9]' counts_wormstaxlist_fin_for_counts | cut -d ' ' -f 2- | sed 's/[[:space:]]*$//' | sort -u) -23
 # result should also be empty
 
+# 2022/08/11
+# download GenBank files of species in counts_wormstaxlist_fin_for_counts which have counts
+# these were missed in the initial (subset) download
+# select species in list which have counts > 0 and append with fields
+grep '^[1-9]' counts_wormstaxlist_fin_for_counts | cut -d ' ' -f 2- | sed 's/$/[ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' | sort -u > wormstaxlist_fin_whits_missed
+# use mydownload function again to download GBs
+cd /mnt/d/Documents/NGS/entrez/
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# function for downloading GB flat file
+mydownload() {
+query="$1"
+IFS=$'\n'
+search=$(esearch -db nuccore -query "$query") 
+count=$(echo "$search" | xtract -pattern Count -element Count)
+if [ $count -gt 0 ]
+then 
+filename=$(echo "$query" | sed 's/ /_/;s/\[.*//;s/ //')
+echo "$search" | efetch -format gb > ./wormstaxlist_gb/${filename}_ncbi.gb
+fi	
+}
+export -f mydownload
+# run download
+# delete log_ncbi_missed.txt if empty after run
+parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin_whits_missed 2>&1 | tee -a log_ncbi_missed.txt 
+
+# for-loop for moving .gb files from wormstaxlist_gb to their respective folders operates on the assumption that a species belongs to only one subset folder
+# however, there are duplicates (and triplicates) in wormstaxlist_fin, meaning one species may be listed > 1 subset:
+for i in $(sort wormstaxlist_fin_whits | uniq -d | sed 's/ /_/;s/$/_ncbi.gb/'); do find ./wormstaxlist_gb/subset.*/ -name "${i}"; done
+# need to check that .gb files to be moved are not part of duplicate/triplicate list
+# use comm
+# file 1: species duplicated/triplicated in wormstaxlist_fin
+# file 2: species with .gbs that need to be moved
+comm <(sed 's/ \[ORGN.*//' wormstaxlist_fin | sort | uniq -d) <(find ./wormstaxlist_gb -maxdepth 1 -name "*_ncbi.gb" | cut -d \/ -f 3 | sed 's/_/ /;s/_ncbi.gb//' | sort -u) -12
+# common species are printed; proceed only if empty result
+
+# move .gbs of missed species to their respective folders
+cd /mnt/d/Documents/NGS/entrez/wormstaxlist_gb
+# copy of earlier code for moving files
+for i in $(ls *_ncbi.gb) 
+do
+spec=$(echo "$i" | sed 's/_/ /;s/_ncbi.gb//') 
+path=$(grep -w "$spec" /mnt/d/Documents/NGS/entrez/wormstaxlist_gb/subsets/subset* | cut -d : -f 1 | sed 's/subsets\///')
+mv "${i}" "${path}"
+done 
+
+# check how many .gb files there are
+find ./subset.*/ -name "*_ncbi.gb" | cut -d \/ -f 3 | wc -l 
+# check how many (unique) .gb files there are 
+find ./subset.*/ -name "*_ncbi.gb" | cut -d \/ -f 3 | sort -u | wc -l
 
 
+ 
 
 ################
 
