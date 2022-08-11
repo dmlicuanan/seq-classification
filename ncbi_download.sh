@@ -352,6 +352,47 @@ cat -n wormstaxlist_fin_for_counts | sort -u -k 2 | sort -n | cut -f 2- > wormst
 # remove count in counts_wormstaxlist_fin_for_counts
 # append species with [ORGN] to be more specific in grep
 # get list of (unique) species to input as file of fixed-strings in (inverted) grep
+# <() is called process substitution -- provides a way to pass the output of a command to another command when using a pipe is not possible
 grep -v -w -F -f <(cut -d ' ' -f 2- counts_wormstaxlist_fin_for_counts | sed 's/$/\[ORGN\]/' | sort -u) wormstaxlist_fin_for_counts_uniq > wormstaxlist_fin_for_counts_reduced
 # execute hitcount function:
 parallel -j 10 --delay 1 --keep-order hitcount :::: wormstaxlist_fin_for_counts_reduced 2>&1 | tee -a log_counts.txt 
+
+
+################ RUN THIS AFTER RUN COMPLETION
+# print species with hits > 1
+awk '$1 > 0' counts_wormstaxlist_fin_for_counts 
+# there are species which do not have counts yet but were printed in the file
+# despite having no counts, they are still excluded from wormstaxlist_fin_for_counts_reduced 
+awk '$1 > 0' counts_wormstaxlist_fin_for_counts | cut -d ' ' -f 2-
+# these species need to be extracted from counts_wormstaxlist_fin_for_counts for rerun
+# select lines that start with space and remove leading spaces and trailing spaces
+awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' 
+# merge with list of species that occurred in log_counts.txt
+# use sort -u to get unique values then append with fields
+cat <(awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//') <(grep -o -P '(?<= -term ").*?(?= \[ORGN\])' log_counts.txt | sed 's/_/ /g') | sort -u | sed 's/$/ [ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' > wormstaxlist_fin_for_counts_rerun
+
+# run hit counter again for species with blank counts and species in log_counts.txt
+# hitcount function will append new counts to counts_wormstaxlist_fin_for_counts so there will be duplicate species (some with blank counts, some with counts)
+parallel -j 10 --delay 1 --keep-order hitcount :::: wormstaxlist_fin_for_counts_rerun 2>&1 | tee -a log_counts_rerun.txt 
+# note: if there are errors in log_counts_rerun.txt, need to rerun those
+
+# check that species originally with no count, now have counts
+# use comm to compare two sorted files and only print species unique to file 1
+# file 1 is list of species with empty counts
+# file 2 is list of species with counts
+comm <(grep -v '^[0-9]' counts_wormstaxlist_fin_for_counts | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort -u) <(grep '^[0-9]' counts_wormstaxlist_fin_for_counts | cut -d ' ' -f 2- | sed 's/[[:space:]]*$//' | sort -u) -23
+# result should be empty
+
+# check that all species that need their counts checked have counts
+# file 1 is the list of species run for counts minus the fields
+# file 2 is list of species with counts
+comm <(sed 's/ \[ORGN.*//' wormstaxlist_fin_for_counts | sort -u) <(grep '^[0-9]' counts_wormstaxlist_fin_for_counts | cut -d ' ' -f 2- | sed 's/[[:space:]]*$//' | sort -u) -23
+# result should also be empty
+
+
+
+
+################
+
+# scratch
+esearch -db nuccore -query "Strigatella ticaonica" | xtract -pattern Count -element Count
