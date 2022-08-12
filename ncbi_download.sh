@@ -356,10 +356,9 @@ cat -n wormstaxlist_fin_for_counts | sort -u -k 2 | sort -n | cut -f 2- > wormst
 grep -v -w -F -f <(cut -d ' ' -f 2- counts_wormstaxlist_fin_for_counts | sed 's/$/\[ORGN\]/' | sort -u) wormstaxlist_fin_for_counts_uniq > wormstaxlist_fin_for_counts_reduced
 # execute hitcount function:
 parallel -j 10 --delay 1 --keep-order hitcount :::: wormstaxlist_fin_for_counts_reduced 2>&1 | tee -a log_counts.txt 
+# number of lines of counts_wormstaxlist_fin_for_counts after initial run = 190389
 
-
-################ RUN THIS AFTER RUN COMPLETION
-# print species with hits > 1
+# after initial run for counts, print species with hits > 1
 awk '$1 > 0' counts_wormstaxlist_fin_for_counts 
 # there are species which do not have counts yet but were printed in the file
 # despite having no counts, they are still excluded from wormstaxlist_fin_for_counts_reduced 
@@ -370,11 +369,13 @@ awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]
 # merge with list of species that occurred in log_counts.txt
 # use sort -u to get unique values then append with fields
 cat <(awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//') <(grep -o -P '(?<= -term ").*?(?= \[ORGN\])' log_counts.txt | sed 's/_/ /g') | sort -u | sed 's/$/ [ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' > wormstaxlist_fin_for_counts_rerun
+# lines of wormstaxlist_fin_for_counts_rerun = 1068
 
 # run hit counter again for species with blank counts and species in log_counts.txt
 # hitcount function will append new counts to counts_wormstaxlist_fin_for_counts so there will be duplicate species (some with blank counts, some with counts)
 parallel -j 10 --delay 1 --keep-order hitcount :::: wormstaxlist_fin_for_counts_rerun 2>&1 | tee -a log_counts_rerun.txt 
 # note: if there are errors in log_counts_rerun.txt, need to rerun those
+# delete log_counts_rerun.txt if empty
 
 # check that species originally with no count, now have counts
 # use comm to compare two sorted files and only print species unique to file 1
@@ -415,7 +416,7 @@ export -f mydownload
 parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin_whits_missed 2>&1 | tee -a log_ncbi_missed.txt 
 
 # for-loop for moving .gb files from wormstaxlist_gb to their respective folders operates on the assumption that a species belongs to only one subset folder
-# however, there are duplicates (and triplicates) in wormstaxlist_fin, meaning one species may be listed > 1 subset:
+# however, there are duplicates (and triplicates) in wormstaxlist_fin, meaning one species may be listed > 1 subset e.g.:
 for i in $(sort wormstaxlist_fin_whits | uniq -d | sed 's/ /_/;s/$/_ncbi.gb/'); do find ./wormstaxlist_gb/subset.*/ -name "${i}"; done
 # need to check that .gb files to be moved are not part of duplicate/triplicate list
 # use comm
@@ -423,6 +424,11 @@ for i in $(sort wormstaxlist_fin_whits | uniq -d | sed 's/ /_/;s/$/_ncbi.gb/'); 
 # file 2: species with .gbs that need to be moved
 comm <(sed 's/ \[ORGN.*//' wormstaxlist_fin | sort | uniq -d) <(find ./wormstaxlist_gb -maxdepth 1 -name "*_ncbi.gb" | cut -d \/ -f 3 | sed 's/_/ /;s/_ncbi.gb//' | sort -u) -12
 # common species are printed; proceed only if empty result
+
+# number of species before moving = 31689
+find ./wormstaxlist_gb/subset.*/ -name "*_ncbi.gb" | wc -l
+# number of species to be moved 
+find ./wormstaxlist_gb -maxdepth 1 -name "*_ncbi.gb" | wc -l
 
 # move .gbs of missed species to their respective folders
 cd /mnt/d/Documents/NGS/entrez/wormstaxlist_gb
@@ -434,15 +440,22 @@ path=$(grep -w "$spec" /mnt/d/Documents/NGS/entrez/wormstaxlist_gb/subsets/subse
 mv "${i}" "${path}"
 done 
 
-# check how many .gb files there are
+# check how many .gb files there are = 31721
 find ./subset.*/ -name "*_ncbi.gb" | cut -d \/ -f 3 | wc -l 
-# check how many (unique) .gb files there are 
+# check how many (unique) .gb files there are = 31708
 find ./subset.*/ -name "*_ncbi.gb" | cut -d \/ -f 3 | sort -u | wc -l
 
+# check if duplicates are identical 
+# https://unix.stackexchange.com/questions/236581/how-to-pipe-output-of-find-as-input-for-diff
+cd /mnt/d/Documents/NGS/entrez/
+for i in $(comm <(find ./wormstaxlist_gb/subset.*/ -name "*_ncbi.gb" | cut -d \/ -f 4 | sort -u) <(sort wormstaxlist_fin | uniq -d | sed 's/ \[ORGN.*/_ncbi.gb/;s/ /_/') -12)
+do
+diff -q $(find ./wormstaxlist_gb/subset.*/ -name "${i}")
+done
+# will print report if files differ; -s another alternative
 
- 
-
-################
-
-# scratch
-esearch -db nuccore -query "Strigatella ticaonica" | xtract -pattern Count -element Count
+# create directory where all _ncbi.gb will be copied to for compilation
+# since duplicate files are identical, overwriting will be okay
+cd /mnt/d/Documents/NGS/entrez/wormstaxlist_gb
+mkdir compiled_gb
+cp $(find ./subset.*/ -name "*_ncbi.gb") compiled_gb
