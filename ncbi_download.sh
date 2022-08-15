@@ -459,3 +459,41 @@ done
 cd /mnt/d/Documents/NGS/entrez/wormstaxlist_gb
 mkdir compiled_gb
 cp $(find ./subset.*/ -name "*_ncbi.gb") compiled_gb
+
+
+
+# 2022/08/15
+# re-download badfiles discovered in gb_parse (listed in wormstaxlist_badfiles)
+# use mydownload function again to download GBs
+cd /mnt/d/Documents/NGS/entrez/
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# function for downloading GB flat file
+mydownload() {
+query="$1"
+IFS=$'\n'
+search=$(esearch -db nuccore -query "$query") 
+count=$(echo "$search" | xtract -pattern Count -element Count)
+if [ $count -gt 0 ]
+then 
+filename=$(echo "$query" | sed 's/ /_/;s/\[.*//;s/ //')
+echo "$search" | efetch -format gb > ./wormstaxlist_gb/${filename}_ncbi.gb
+fi	
+}
+export -f mydownload
+# run download (modified)
+parallel -j 2 --delay 2 mydownload :::: wormstaxlist_badfiles
+
+# copy new .gbs of "bad files" to their respective folders
+# each file is not part of duplicated species in wormstaxlist_fin
+cd /mnt/d/Documents/NGS/entrez/wormstaxlist_gb
+# modification of earlier code for moving files 
+# we will only copy them to their respective subset folders then move them to compiled_gb
+for i in $(ls *_ncbi.gb) 
+do
+spec=$(echo "$i" | sed 's/_/ /;s/_ncbi.gb//') 
+path=$(grep -w "$spec" /mnt/d/Documents/NGS/entrez/wormstaxlist_gb/subsets/subset* | cut -d : -f 1 | sed 's/subsets\///')
+cp "${i}" "${path}"
+done 
+# move files to compiled_gb
+mv *_ncbi.gb compiled_gb
+
