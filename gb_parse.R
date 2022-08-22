@@ -134,17 +134,16 @@ for (i in 1:length(files)) {
 
 
 
-# test file 
+# scratch 1
 gbfile <- "Aspergillus_fumigatus_ncbi.gb"
-gbfile <- 
 i <- 1 # no ORIGIN
-i <- 2
-i <- 3
+i <- 2 # whole genome shotgun sequence
+i <- 3 # complete mitogenome
 i <- 4 # COI
 
 # 2) function for converting .gb (gbfile) to .fasta (fastafile)
 # this time selecting sequence that corresponds to COI
-gbtofasta <- function(gbfile, fastafile) {
+locCheck <- function(gbfile) {
   # read file
   gb <- readLines(gbfile)
   
@@ -152,9 +151,12 @@ gbtofasta <- function(gbfile, fastafile) {
   start <- grep("^LOCUS", gb)
   end <- grep("^//", gb)
   origin <- grep("^ORIGIN", gb)
-  # empty vector
-  f <- vector()
+  # empty list
+  f <- list()
   
+  # empty vector for sourceLoc
+  sourceLoc <- vector()
+  # examine .gb file per record
   for (i in 1:length(start)) {
     # is there an ORIGIN marker in between LOCUS and //?
     if (any(origin %in% start[i]:end[i])) { 
@@ -162,14 +164,14 @@ gbtofasta <- function(gbfile, fastafile) {
       record <- gb[start[i]:end[i]]
       
       # get accession version
-      version <- record[grep("^VERSION", record)]
-      version <- trimws(gsub("^VERSION", "", version))
-      
+      # version <- record[grep("^VERSION", record)]
+      # version <- trimws(gsub("^VERSION", "", version))
+       
       # get definition
-      def <- record[grep("^DEFINITION", record):(grep("^ACCESSION", record)-1)]
-      def <- paste(trimws(gsub("^DEFINITION", "", def)), collapse = " ")
-      # remove last period
-      def <- sub("[.]$", "", def)
+      # def <- record[grep("^DEFINITION", record):(grep("^ACCESSION", record)-1)]
+      # def <- paste(trimws(gsub("^DEFINITION", "", def)), collapse = " ")
+      # # remove last period
+      # def <- sub("[.]$", "", def)
       
       # restrict to info under FEATURES (include line of ORIGIN)
       ind <- grep("^FEATURES|^ORIGIN", record)
@@ -183,32 +185,27 @@ gbtofasta <- function(gbfile, fastafile) {
       # contents of source section
       sub <- feats[indSec[indSource]:(indSec[indSource+1]-1)]
       # get taxid
-      taxid <- gsub("\\\"|\\s|/", "", sub[grep("db_xref=\"taxon:", sub)])
-      taxid <- sub("db_xref=taxon:", "", taxid)
+      # taxid <- gsub("\\\"|\\s|/", "", sub[grep("db_xref=\"taxon:", sub)])
+      # taxid <- sub("db_xref=taxon:", "", taxid)
       # get location of whole sequence
-      sourceLoc <- 
+      sourceLoc <- c(sourceLoc, gsub("source|\\s", "", feats[indSec[indSource]]))
       
       # get sections with gene; section indices as reference
       indGene <- grep("^     gene", feats[indSec])
-      
+      # create empty vectors where locations and COI gene names will be compiled
+      loc <- vector()
+      gene <- vector()
       # examines lines per gene feature
       for (j in 1:length(indGene)) {
         sub <- feats[indSec[indGene][j]:(indSec[indGene+1]-1)[j]]
         pattern <- "/gene.*CO1|/gene.*COI|/gene.*COX1|/gene.*COXI|/gene.*CO-I|/gene.*CO-1"
-
+        # if any COI patter is in the gene feature, extract location and gene name
         if (any(grepl(pattern, sub, ignore.case = TRUE))) { 
-          loc <- gsub("gene|\\s", "", sub[grep("^     gene", sub)])
-          gene <- gsub("/gene=|\\s|\"", "", sub[grep("/gene=", sub)])}
-        else { NULL }
-        
+          loc <- c(loc, gsub("gene|\\s", "", sub[grep("^     gene", sub)]))
+          gene <- c(gene, gsub("/gene=|\\s|\"", "", sub[grep("/gene=", sub)])) }
       }
-      
-      
-      indSec[indGene]
-      indSec[indGene+1]-1
-      feats[indSec[indGene]]
-        
-      feats[grep("^                     /", feats)]
+      # if no COI pattern found in sections, print message in console
+      if (length(gene) == 0) { print(paste("No COI in", gbfile, "record", i)) }
       
       # get sequence data
       # seq <- record[(grep("^ORIGIN", record)+1):(grep("^//", record)-1)]
@@ -220,10 +217,156 @@ gbtofasta <- function(gbfile, fastafile) {
     }
     else { NULL }
   }
-  # write fasta if vector not empty
-  if (length(f) > 0) { write(f, fastafile) }
-  else { NULL }
 }
+
+
+
+
+
+
+
+
+
+
+# scratch 2
+################## THIS IS OKAY:
+
+# 1) gbParse
+# input .gb file which contains many sequences
+# output list of records
+gbParse <- function(gbfile) {
+  # read .gb file
+  gb <- readLines(gbfile)
+  # mark start and end markers per record
+  start <- grep("^LOCUS", gb)
+  end <- grep("^//", gb)
+  # marks the presence of a sequence
+  origin <- grep("^ORIGIN", gb)
+  
+  # empty list
+  recs <- list()
+  
+  # only proceed if no. of start markers and no. of end markers is equal
+  if (length(start) == length(end)) {
+    for (i in 1:length(start)) {
+      # is there an ORIGIN marker in between LOCUS and //?
+      # if yes, proceed, since the record holds a sequence
+      if (any(origin %in% start[i]:end[i])) {
+        # hold in ith element of list
+        recs[[i]] <- gb[start[i]:end[i]]
+      } else { print(paste("gbParse: there is no sequence data in record #", i, "of", gbfile)) }
+    }
+  } else { print(paste("gbParse: number of start and end markers not equal in", gbfile)) }
+  # return list sans NULL elements
+  return(recs[lengths(recs) != 0])
+}
+
+# 2) recInfo
+# function to extract the following from each record:
+# definition, version, taxid, source (range of sequence)
+recInfo <- function(gbrecord) {
+  # create empty list where to store record information
+  list <- vector("list", length = 4)
+  names(list) <- c("def", "version", "taxid", "source")
+  
+  # get accession version
+  list$version <- gbrecord[grep("^VERSION", gbrecord)]
+  list$version <- trimws(gsub("^VERSION", "", list$version))
+  
+  # get definition
+  # line index containing start of definition
+  ind1 <- grep("^DEFINITION", gbrecord)
+  # indices of headers
+  headers <- grep("^[[:alpha:]]", gbrecord)
+  # line index of end of definition
+  ind2 <- headers[which(headers == ind1) + 1] - 1
+  list$def <- gbrecord[ind1:ind2]
+  list$def <- paste(trimws(gsub("^DEFINITION", "", list$def)), collapse = " ")
+  # remove last period
+  list$def <- sub("[.]$", "", list$def)
+  
+  # line index containing "source"
+  ind1 <- grep("^     source", gbrecord)
+  # indices of feature starts
+  headers <- grep("^     [[:alpha:]]", gbrecord)
+  # line index of end of source key
+  ind2 <- headers[which(headers %in% ind1) + 1] - 1
+  
+  # is there only one source key in the record?
+  if (length(ind1) == 1) {
+    # restrict actions to section under source key
+    sub <- gbrecord[ind1:ind2]
+    # get taxid
+    list$taxid <- gsub("\\\"|\\s|/", "", sub[grep("db_xref=\"taxon:", sub)])
+    list$taxid <- sub("db_xref=taxon:", "", list$taxid)
+    # replace taxid with NA, and print message
+    if (length(list$taxid) == 0) { 
+      list$taxid <- NA
+      print(paste("recInfo: sequence tagged", list$version, "has no taxid"))}
+    
+    # get location range of sequence
+    list$source <- gsub("source|\\s", "", gbrecord[ind1])
+    
+  } else { print(paste("recInfo: there is more than one source key in sequence tagged", list$version))}
+  
+  # output list of record information 
+  return(list)
+}
+
+################## 
+# 3) coiInfo
+# function to extract gene and location information
+coiInfo <- function(gbrecord) {
+  # create empty vectors where locations and COI gene names will be compiled
+  loc <- vector()
+  gene <- vector()
+  
+  # get features with "gene"
+  ind1 <- grep("^     gene", gbrecord)
+  # line indices where all features start + index of ORIGIN 
+  headers <- grep("^     [[:alpha:]]|^ORIGIN", gbrecord)
+  # indices where each "gene" feature ends
+  ind2 <- headers[which(headers %in% ind1) + 1] - 1
+  
+  for (j in 1:length(ind1)) {
+    # examines lines per gene feature
+    sub <- gbrecord[ind1[j]:ind2[j]]
+    # COI pattern to search for 
+    pattern <- "/gene.*CO1|/gene.*COI|/gene.*COX1|/gene.*COXI|/gene.*CO-I|/gene.*CO-1"
+    
+    # if any COI pattern is in the gene feature, extract location and gene name
+    if (any(grepl(pattern, sub, ignore.case = TRUE))) { 
+      loc <- c(loc, gsub("gene|\\s", "", sub[grep("^     gene", sub)]))
+      gene <- c(gene, gsub("/gene=|\\s|\"", "", sub[grep("/gene=", sub)])) }
+  }
+  # if no COI pattern found in sections, print message in console
+  if (length(gene) == 0) { 
+    # get accession version
+    ver <- gbrecord[grep("^VERSION", gbrecord)]
+    ver <- trimws(gsub("^VERSION", "", ver))
+    # print message
+    print(paste("geneInfo: no COI gene information in sequence tagged", ver)) }
+  
+  # return named list
+  return(list(gene = gene, loc = loc))
+}
+
+##################
+
+# test run
+gbfile <- "Aspergillus_fumigatus_ncbi.gb"
+temp <- gbParse(gbfile)
+gbrecord <- temp[[2]]
+
+
+
+for(i in 1:length(temp)) {
+  gbrecord <- temp[[i]]
+  print(recInfo(gbrecord))
+}
+
+
+
 
 
 
