@@ -1,10 +1,10 @@
 # script for parsing GenBank flatfiles
 # contains functions for creating fasta files from GenBank flatfiles
-# functions should work for files that contain multiple sequences
-# functions be able to extract the COI portion if mitochondrial genomes are provided
+# also contains functions that parse files with multiple .gb records, extract sequence information, and extract the COI portion of sequences if mitogenomes are provided
 
-# GB flatfile information: 
+# references:
 # https://www.ncbi.nlm.nih.gov/Sitemap/samplerecord.html#Top
+# https://www.insdc.org/submitting-standards/feature-table/#1
 
 # working directory: path of .gb files
 setwd("D:/Documents/NGS/entrez/wormstaxlist_gb/compiled_gb")
@@ -72,7 +72,7 @@ colSums(badmat[,-1])
 # cat(bf, file = f, sep = "\n")
 # close(f)
 
-# 1) function for converting .gb (gbfile) to .fasta (fastafile)
+# function for converting .gb (gbfile) to .fasta (fastafile)
 gbtofasta <- function(gbfile, fastafile) {
   # read file
   gb <- readLines(gbfile)
@@ -129,107 +129,12 @@ for (i in 1:length(files)) {
 }
 
 
-
-
-
-
-
-# scratch 1
-gbfile <- "Aspergillus_fumigatus_ncbi.gb"
-i <- 1 # no ORIGIN
-i <- 2 # whole genome shotgun sequence
-i <- 3 # complete mitogenome
-i <- 4 # COI
-
-# 2) function for converting .gb (gbfile) to .fasta (fastafile)
-# this time selecting sequence that corresponds to COI
-locCheck <- function(gbfile) {
-  # read file
-  gb <- readLines(gbfile)
-  
-  # record start and end markers per record
-  start <- grep("^LOCUS", gb)
-  end <- grep("^//", gb)
-  origin <- grep("^ORIGIN", gb)
-  # empty list
-  f <- list()
-  
-  # empty vector for sourceLoc
-  sourceLoc <- vector()
-  # examine .gb file per record
-  for (i in 1:length(start)) {
-    # is there an ORIGIN marker in between LOCUS and //?
-    if (any(origin %in% start[i]:end[i])) { 
-      # restrict actions to record
-      record <- gb[start[i]:end[i]]
-      
-      # get accession version
-      # version <- record[grep("^VERSION", record)]
-      # version <- trimws(gsub("^VERSION", "", version))
-       
-      # get definition
-      # def <- record[grep("^DEFINITION", record):(grep("^ACCESSION", record)-1)]
-      # def <- paste(trimws(gsub("^DEFINITION", "", def)), collapse = " ")
-      # # remove last period
-      # def <- sub("[.]$", "", def)
-      
-      # restrict to info under FEATURES (include line of ORIGIN)
-      ind <- grep("^FEATURES|^ORIGIN", record)
-      feats <- record[(ind[1]+1):(ind[2])]
-      
-      # get info under source
-      # indices of sections; feats as reference 
-      indSec <- grep("^     [[:alpha:]]|^ORIGIN", feats)
-      # index of section with "source"; section indices as reference
-      indSource <- grep("^     source", feats[indSec])
-      # contents of source section
-      sub <- feats[indSec[indSource]:(indSec[indSource+1]-1)]
-      # get taxid
-      # taxid <- gsub("\\\"|\\s|/", "", sub[grep("db_xref=\"taxon:", sub)])
-      # taxid <- sub("db_xref=taxon:", "", taxid)
-      # get location of whole sequence
-      sourceLoc <- c(sourceLoc, gsub("source|\\s", "", feats[indSec[indSource]]))
-      
-      # get sections with gene; section indices as reference
-      indGene <- grep("^     gene", feats[indSec])
-      # create empty vectors where locations and COI gene names will be compiled
-      loc <- vector()
-      gene <- vector()
-      # examines lines per gene feature
-      for (j in 1:length(indGene)) {
-        sub <- feats[indSec[indGene][j]:(indSec[indGene+1]-1)[j]]
-        pattern <- "/gene.*CO1|/gene.*COI|/gene.*COX1|/gene.*COXI|/gene.*CO-I|/gene.*CO-1"
-        # if any COI patter is in the gene feature, extract location and gene name
-        if (any(grepl(pattern, sub, ignore.case = TRUE))) { 
-          loc <- c(loc, gsub("gene|\\s", "", sub[grep("^     gene", sub)]))
-          gene <- c(gene, gsub("/gene=|\\s|\"", "", sub[grep("/gene=", sub)])) }
-      }
-      # if no COI pattern found in sections, print message in console
-      if (length(gene) == 0) { print(paste("No COI in", gbfile, "record", i)) }
-      
-      # get sequence data
-      # seq <- record[(grep("^ORIGIN", record)+1):(grep("^//", record)-1)]
-      # seq <- toupper(paste(gsub("[[:digit:]]| ", "", seq), collapse = ""))
-      
-      # assemble fasta
-      # id <- paste0(">", version, " ", def)
-      # f <- c(f, id, seq)
-    }
-    else { NULL }
-  }
-}
-
-
-
-
-
-
-
-
-
-
-# scratch 2
-################## THIS IS OKAY:
+# some downloaded sequences do not contain COI exclusively
+# need to cut out COI sequences only
+# function descriptions:
+# 1) gbParse: takes .gb file and separates records
+# 2) recInfo: takes record, returns list of definition, version, taxid, source (range of sequence)
+# 3) coiInfo: takes record, returns gene name and location
 
 # 1) gbParse
 # input .gb file which contains many sequences
@@ -313,9 +218,8 @@ recInfo <- function(gbrecord) {
   return(list)
 }
 
-################## 
 # 3) coiInfo
-# function to extract gene and location information
+# function to extract gene and location information of COI
 coiInfo <- function(gbrecord) {
   # create empty vectors where locations and COI gene names will be compiled
   loc <- vector()
@@ -332,12 +236,25 @@ coiInfo <- function(gbrecord) {
     # examines lines per gene feature
     sub <- gbrecord[ind1[j]:ind2[j]]
     # COI pattern to search for 
-    pattern <- "/gene.*CO1|/gene.*COI|/gene.*COX1|/gene.*COXI|/gene.*CO-I|/gene.*CO-1"
+    pattern <- "/gene.*CO1\"|/gene.*COI\"|/gene.*COX1\"|/gene.*COXI\"|/gene.*CO-I\"|/gene.*CO-1\""
     
     # if any COI pattern is in the gene feature, extract location and gene name
     if (any(grepl(pattern, sub, ignore.case = TRUE))) { 
-      loc <- c(loc, gsub("gene|\\s", "", sub[grep("^     gene", sub)]))
-      gene <- c(gene, gsub("/gene=|\\s|\"", "", sub[grep("/gene=", sub)])) }
+      # which lines contain the start of location
+      stLine <- grep("^     gene", sub)
+      # which lines contain the end of location
+      endLine <- grep("^                     /", sub)[1] - 1
+      # location line
+      l <- sub[stLine:endLine]
+      # remove large spaces and collapse as one line
+      l <- gsub("^                     ", "", l)
+      l <- paste(l, collapse = "")
+      
+      # get location
+      loc <- c(loc, gsub("gene|\\s", "", l))
+      # get gene
+      gene <- c(gene, gsub("/gene=|\\s|\"", "", sub[grep("/gene=", sub)]))
+      }
   }
   # if no COI pattern found in sections, print message in console
   if (length(gene) == 0) { 
@@ -347,30 +264,878 @@ coiInfo <- function(gbrecord) {
     # print message
     print(paste("geneInfo: no COI gene information in sequence tagged", ver)) }
   
+  # put gene and loc in dataframe to check duplicates
+  d <- unique(data.frame(loc, gene))
+  # re-assign back to vectors
+  loc <- d$loc
+  gene <- d$gene
   # return named list
   return(list(gene = gene, loc = loc))
 }
 
-##################
+# location data is not simply encoded, so need to check possible characters that arise in location info 
+# all .gb files
+files <- list.files(pattern = "_ncbi.gb")
+# run gbParse, recInfo, coiInfo (32.44633 elapsed mins; 38.01567 elapsed mins)
+for (i in 1:length(files)) {
+  # parse .gb files
+  gblist <- gbParse(files[i])
+  # nested loop
+  for (j in 1:length(gblist)) {
+    # perform actions per record
+    record <- gblist[[j]]
+    # get record and gene info
+    l1 <- recInfo(record)
+    l2 <- coiInfo(record)
+    
+    # base nrows on number of genes listed as COI
+    df <- data.frame(gene = l2$gene, loc = l2$loc)
+    # add unique data per record
+    df$def <- l1$def
+    df$version <- l1$version
+    df$taxid <- l1$taxid
+    df$source <- l1$source
+    df$file <- files[i]
+    
+    # append df to file
+    # 1st run -- when coiInfo only took one line of loc info
+    # write.table(df, "D:/Documents/NGS/entrez/wormstaxlist_gb/locInfo.txt", append = TRUE, col.names = FALSE, quote = FALSE, sep = "\t", row.names = FALSE)
+    write.table(df, "D:/Documents/NGS/entrez/wormstaxlist_gb/locInfo_2.txt", append = TRUE, col.names = FALSE, quote = FALSE, sep = "\t", row.names = FALSE)
+  }
+}
+# notes -- consistent with grep counts!
+# 11 .gb records with no sequence
+# [1] "gbParse: there is no sequence data in record # 1 of Aspergillus_fumigatus_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 35 of Clunio_marinus_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 1 of Dirofilaria_immitis_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 1 of Hortaea_werneckii_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 28 of Perca_fluviatilis_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 29 of Perca_fluviatilis_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 1 of Pichia_spartinae_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 2 of Pichia_spartinae_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 12 of Saccharomyces_cerevisiae_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 125 of Saccharomyces_cerevisiae_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 8 of Scatophagus_argus_ncbi.gb"
 
-# test run
-gbfile <- "Aspergillus_fumigatus_ncbi.gb"
-temp <- gbParse(gbfile)
-gbrecord <- temp[[2]]
+# check location information 
+# locRaw <- read.table("D:/Documents/NGS/entrez/wormstaxlist_gb/locInfo.txt", sep = "\t", quote = "", comment.char = "") # 471011 rows
+locRaw <- read.table("D:/Documents/NGS/entrez/wormstaxlist_gb/locInfo_2.txt", sep = "\t", quote = "", comment.char = "") # 471009 rows
+# add names to columns
+names(locRaw) <- c("gene", "loc", "def", "version", "taxid", "source", "file")
 
+# check the format of source
+# https://www.insdc.org/submitting-standards/feature-table/#1
+# confirm if it always starts with 1..(length of sequence)
+temp <- locRaw$source
+# do all begin with 1..
+all(grepl("^1\\.\\.", temp))
+# do all follow the format: 1..digit
+all(grepl("^1\\.\\.[[:digit:]]*$", temp))
+unique(sub("^1\\.\\.[[:digit:]]*$", "", temp))
+# sequence lengths
+len <- as.integer(sub("^1\\.\\.", "", temp))
+# range of sequence lengths: 20 to 678653
+range(len)
+# distribution of lengths
+hist(len, breaks = 100)
+hist(sort(len)[1:450000], breaks = 100)
+# 94.56% of lengths are less than 1000 bp
+sum(len < 1000) / length(len)
 
+# which accession #s are repeated?
+df <- data.frame(table(locRaw$version))
+# vector of accession numbers that appear more than once
+dups <- df[df$Freq > 1,]$Var1
+# print duplicates based on accession #
+temp <- locRaw[locRaw$version %in% dups,]
+temp <- temp[order(temp$version),]
+head(temp[, c("version", "taxid", "source", "file")])
+# note: some duplicates are from species synonyms
+# e.g.: Cynarina lacrymalis is synonymous with Sclerophyllia margariticola
+# both are linked to the same .gb record AB117246.1
 
-for(i in 1:length(temp)) {
-  gbrecord <- temp[[i]]
-  print(recInfo(gbrecord))
+# number of unique accession #s in df showing duplicates
+length(unique(temp$version)) # 3754
+# number of unique entries based on record contents alone
+nrow(unique(temp[,c('def', 'version', 'taxid', 'source')]))
+# note: number of version is indicative of the #s of unique records
+
+# remove duplicates due to species synonyms to see other duplicates 
+# duplication will then be due to multiple COI locations per record
+# remove file column
+loc <- locRaw[, -7]
+# remove duplicates based on all remaining variables
+loc <- loc[!duplicated(loc), ]
+# check again which accession numbers are repeated
+df <- data.frame(table(loc$version))
+# vector of accession numbers that appear more than once
+dups <- as.character(df[df$Freq > 1,]$Var1)
+# print duplicates based on accession #
+temp <- loc[loc$version %in% dups,]
+temp <- temp[order(temp$version),]
+temp[, c("version", "source", "loc", "gene")]
+# there are 97 records associated with more than one COI gene location 
+length(unique(temp$version))
+
+# coiChecker
+# function for printing all coi features in .gb record if there is more than one
+coiChecker <- function(gbrecord) {
+  # create empty vectors where locations and COI gene names will be compiled
+  loc <- vector()
+  gene <- vector()
+  # vector where feature section will be stored
+  feature <- vector()
+  
+  # get features with "gene" or "CDS"
+  ind1 <- grep("^     gene", gbrecord)
+  # line indices where all features start + index of ORIGIN 
+  headers <- grep("^     [[:alpha:]]|^ORIGIN", gbrecord)
+  # indices where each "gene" feature ends
+  ind2 <- headers[which(headers %in% ind1) + 1] - 1
+  
+  for (j in 1:length(ind1)) {
+    # examines lines per gene feature
+    sub <- gbrecord[ind1[j]:ind2[j]]
+    # COI pattern to search for 
+    pattern <- "/gene.*CO1\"|/gene.*COI\"|/gene.*COX1\"|/gene.*COXI\"|/gene.*CO-I\"|/gene.*CO-1\""
+    
+    # if any COI pattern is in the gene feature, extract location and gene name
+    if (any(grepl(pattern, sub, ignore.case = TRUE))) { 
+      loc <- c(loc, gsub("gene|\\s", "", sub[grep("^     gene", sub)]))
+      gene <- c(gene, gsub("/gene=|\\s|\"", "", sub[grep("/gene=", sub)]))
+      # save feature in vector
+      feature <- c(feature, sub)
+    }
+  }
+  
+  # get accession version
+  ver <- gbrecord[grep("^VERSION", gbrecord)]
+  ver <- trimws(gsub("^VERSION", "", ver))
+  
+  # if no COI pattern found in sections, print message in console
+  if (length(gene) == 0) { 
+    # print message
+    print(paste("geneInfo: no COI gene information in sequence tagged", ver)) }
+  
+  # if there is more than one COI feature, print accession # and feature
+  if (length(gene) > 1) {
+    print(ver)
+    print(feature)
+  }
 }
 
+# vector of accessions associated with more than one COI location
+vers <- unique(temp$version)
+# find file names linked to example accession #s
+f <- unique(locRaw[locRaw$version %in% vers, ]$file) 
+# mapping of accession version with file name
+unique(locRaw[locRaw$version %in% vers, c("version", "file")])
+
+# print sections when COI locations > 1
+for (i in 1:length(f)) {
+  gblist <- gbParse(f[i])
+  
+  for (j in 1:length(gblist)) {
+    # perform actions per record
+    record <- gblist[[j]]
+    coiChecker(record)
+    }
+}
+# [1] "MK562756.1"
+# [1] "     gene            91095..92591"  
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            286304..287800"
+# [4] "                     /gene=\"cox1\""
+# [1] "FJ429092.1"
+# [1] "     gene            2095..3627"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            8548..10080"  
+# [4] "                     /gene=\"CO1\""
+# [1] "KC701764.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8549..10081"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701763.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701762.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701761.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701760.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701759.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701757.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701755.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701754.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701753.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701752.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701751.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701750.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701749.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701748.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701747.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701746.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701745.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701744.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8549..10081"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701743.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701742.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701741.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701740.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701738.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701737.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701736.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701735.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701734.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701733.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701732.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701731.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701730.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701729.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701728.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701727.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701725.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8548..10080"   
+# [4] "                     /gene=\"COX1\""
+# [1] "KC701724.1"
+# [1] "     gene            2095..3627"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8557..10089"   
+# [4] "                     /gene=\"COX1\""
+# [1] "NC_011581.1"
+# [1] "     gene            2095..3627"                 
+# [2] "                     /gene=\"COX1\""             
+# [3] "                     /db_xref=\"GeneID:7042918\""
+# [4] "     gene            8548..10080"                
+# [5] "                     /gene=\"COX1\""             
+# [6] "                     /db_xref=\"GeneID:7042913\""
+# [1] "NC_016423.1"
+# [1] "     gene            1416..2948"                  
+# [2] "                     /gene=\"COX1\""              
+# [3] "                     /db_xref=\"GeneID:11452066\""
+# [4] "     gene            15055..16587"                
+# [5] "                     /gene=\"COX1\""              
+# [6] "                     /db_xref=\"GeneID:11452077\""
+# [1] "AP012225.1"
+# [1] "     gene            1416..2948"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            15055..16587" 
+# [4] "                     /gene=\"CO1\""
+# [1] "JQ062883.1"
+# [1] "     gene            12447..19832"  
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            13440..15491"  
+# [4] "                     /gene=\"cox1\""
+# [1] "JQ062882.1"
+# [1] "     gene            12445..19830"  
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            13438..15489"  
+# [4] "                     /gene=\"cox1\""
+# [1] "JQ062881.1"
+# [1] "     gene            11838..19223"  
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            12081..14882"  
+# [4] "                     /gene=\"cox1\""
+# [5] "     gene            12831..14882"  
+# [6] "                     /gene=\"cox1\""
+# [1] "NC_040118.1"
+# [1] "     gene            1433..2965"                  
+# [2] "                     /gene=\"COX1\""              
+# [3] "                     /locus_tag=\"EJ553_mgp17\""  
+# [4] "                     /db_xref=\"GeneID:38574330\""
+# [5] "     gene            9092..10624"                 
+# [6] "                     /gene=\"COX1\""              
+# [7] "                     /locus_tag=\"EJ553_mgp11\""  
+# [8] "                     /db_xref=\"GeneID:38574321\""
+# [1] "MG833837.1"
+# [1] "     gene            1433..2965"    
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            9092..10624"   
+# [4] "                     /gene=\"cox1\""
+# [1] "KT809323.1"
+# [1] "     gene            complement(295..373)"
+# [2] "                     /gene=\"cox1\""      
+# [3] "                     /pseudo"             
+# [4] "     gene            13604..15169"        
+# [5] "                     /gene=\"cox1\""      
+# [1] "NC_016465.1"
+# [1] "     gene            complement(80..1645)"        
+# [2] "                     /gene=\"COX1\""              
+# [3] "                     /db_xref=\"GeneID:11473170\""
+# [4] "     gene            15119..16684"                
+# [5] "                     /gene=\"COX1\""              
+# [6] "                     /db_xref=\"GeneID:11473165\""
+# [1] "JN700935.1"
+# [1] "     gene            complement(80..1645)"
+# [2] "                     /gene=\"cox1\""      
+# [3] "     gene            15119..16684"        
+# [4] "                     /gene=\"cox1\""      
+# [1] "FO082257.1"
+# [1] "     gene            24414..39193"                    
+# [2] "                     /gene=\"cox1\""                  
+# [3] "     gene            <24669..27116"                   
+# [4] "                     /gene=\"cox1\""                  
+# [5] "                     /locus_tag=\"cpurp_mito_Cox1-1\""
+# [6] "     gene            <30561..31238"                   
+# [7] "                     /gene=\"cox1\""                  
+# [8] "                     /locus_tag=\"cpurp_mito_Cox1-7\""
+# [9] "     gene            <32093..32893"                   
+# [10] "                     /gene=\"cox1\""                  
+# [11] "                     /locus_tag=\"cpurp_mito_Cox1-9\""
+# [1] "NC_047242.1"
+# [1] "     gene            complement(38111..53468)"    
+# [2] "                     /gene=\"cox1\""              
+# [3] "                     /locus_tag=\"HJF13_mgp060\"" 
+# [4] "                     /db_xref=\"GeneID:54599960\""
+# [5] "     gene            complement(53591..54520)"    
+# [6] "                     /gene=\"cox1\""              
+# [7] "                     /locus_tag=\"HJF13_mgp047\"" 
+# [8] "                     /db_xref=\"GeneID:54599973\""
+# [1] "MN978926.1"
+# [1] "     gene            complement(38111..53468)"
+# [2] "                     /gene=\"cox1\""          
+# [3] "     gene            complement(53591..54520)"
+# [4] "                     /gene=\"cox1\""          
+# [1] "MW592987.1"
+# [1] "     gene            8344..10408"   
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            8554..8821"    
+# [4] "                     /gene=\"cox1\""
+# [5] "     gene            9464..9703"    
+# [6] "                     /gene=\"cox1\""
+# [1] "MW592989.1"
+# [1] "     gene            3335..5419"    
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            3542..3818"    
+# [4] "                     /gene=\"cox1\""
+# [5] "     gene            4461..4705"    
+# [6] "                     /gene=\"cox1\""
+# [1] "EU068697.1"
+# [1] "     gene            1425..2957"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            8454..9986"   
+# [4] "                     /gene=\"CO1\""
+# [1] "NC_009734.1"
+# [1] "     gene            1425..2957"                 
+# [2] "                     /gene=\"COX1\""             
+# [3] "                     /db_xref=\"GeneID:5469443\""
+# [4] "     gene            8454..9986"                 
+# [5] "                     /gene=\"COX1\""             
+# [6] "                     /db_xref=\"GeneID:5469447\""
+# [1] "MW450849.1"
+# [1] "     gene            2057..3589"    
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            8454..9986"    
+# [4] "                     /gene=\"cox1\""
+# [1] "MW592986.1"
+# [1] "     gene            1..3645"       
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            893..2974"     
+# [4] "                     /gene=\"cox1\""
+# [1] "LN901196.1"
+# [1] "     gene            complement(9..87)"
+# [2] "                     /gene=\"cox1\""   
+# [3] "                     /pseudo"          
+# [4] "     gene            13444..15009"     
+# [5] "                     /gene=\"cox1\""   
+# [1] "LN901197.1"
+# [1] "     gene            complement(111..189)"
+# [2] "                     /gene=\"cox1\""      
+# [3] "                     /pseudo"             
+# [4] "     gene            13552..15117"        
+# [5] "                     /gene=\"cox1\""      
+# [1] "NC_026908.1"
+# [1] "     gene            1987..3519"                  
+# [2] "                     /gene=\"COX1\""              
+# [3] "                     /locus_tag=\"YC02_gp16\""    
+# [4] "                     /db_xref=\"GeneID:24143643\""
+# [5] "     gene            9016..10548"                 
+# [6] "                     /gene=\"COX1\""              
+# [7] "                     /locus_tag=\"YC02_gp10\""    
+# [8] "                     /db_xref=\"GeneID:24143649\""
+# [1] "KP336702.1"
+# [1] "     gene            1987..3519"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            9016..10548"   
+# [4] "                     /gene=\"COX1\""
+# [1] "JN700945.1"
+# [1] "     gene            complement(<1..798)"
+# [2] "                     /gene=\"cox1\""     
+# [3] "     gene            14213..15778"       
+# [4] "                     /gene=\"cox1\""     
+# [1] "NC_063457.1"
+# [1] "     gene            1..1476"                     
+# [2] "                     /gene=\"cox1\""              
+# [3] "                     /locus_tag=\"NDC64_mgp01\""  
+# [4] "                     /note=\"copy1\""             
+# [5] "                     /db_xref=\"GeneID:72631909\""
+# [6] "     gene            1495..3591"                  
+# [7] "                     /gene=\"cox1\""              
+# [8] "                     /locus_tag=\"NDC64_mgp02\""  
+# [9] "                     /note=\"copy2\""             
+# [10] "                     /db_xref=\"GeneID:72631842\""
+# [1] "MW849268.1"
+# [1] "     gene            1..1476"        
+# [2] "                     /gene=\"cox1\"" 
+# [3] "                     /note=\"copy1\""
+# [4] "     gene            1495..3591"     
+# [5] "                     /gene=\"cox1\"" 
+# [6] "                     /note=\"copy2\""
+# [1] "MW849269.1"
+# [1] "     gene            1..2004"         
+# [2] "                     /gene=\"cox1\""  
+# [3] "                     /note=\"copy 1\""
+# [4] "     gene            2816..4576"      
+# [5] "                     /gene=\"cox1\""  
+# [6] "                     /note=\"copy 2\""
+# [7] "     gene            5145..9745"      
+# [8] "                     /gene=\"cox1\""  
+# [9] "                     /note=\"copy 3\""
+# [1] "JN700948.1"
+# [1] "     gene            complement(<1..948)"
+# [2] "                     /gene=\"cox1\""     
+# [3] "     gene            14348..>15194"      
+# [4] "                     /gene=\"cox1\""     
+# [1] "NC_020348.1"
+# [1] "     gene            2041..3573"                  
+# [2] "                     /gene=\"COX1\""              
+# [3] "                     /gene_synonym=\"COI\""       
+# [4] "                     /db_xref=\"GeneID:14658336\""
+# [5] "     gene            15321..16853"                
+# [6] "                     /gene=\"COX1\""              
+# [7] "                     /gene_synonym=\"COI\""       
+# [8] "                     /db_xref=\"GeneID:14658337\""
+# [1] "AB715401.1"
+# [1] "     gene            2041..3573"   
+# [2] "                     /gene=\"COI\""
+# [3] "     gene            15321..16853" 
+# [4] "                     /gene=\"COI\""
+# [1] "NC_031832.1"
+# [1] "     gene            complement(16336..17946)"    
+# [2] "                     /gene=\"cox1\""              
+# [3] "                     /locus_tag=\"BOO99_gp058\""  
+# [4] "                     /db_xref=\"GeneID:30214182\""
+# [5] "     gene            58929..60539"                
+# [6] "                     /gene=\"cox1\""              
+# [7] "                     /locus_tag=\"BOO99_gp015\""  
+# [8] "                     /db_xref=\"GeneID:30214195\""
+# [1] "AP017433.1"
+# [1] "     gene            complement(16336..17946)"
+# [2] "                     /gene=\"cox1\""          
+# [3] "     gene            58929..60539"            
+# [4] "                     /gene=\"cox1\""          
+# [1] "MW592988.1"
+# [1] "     gene            10577..14861"  
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            10754..12963"  
+# [4] "                     /gene=\"cox1\""
+# [5] "     gene            14038..14564"  
+# [6] "                     /gene=\"cox1\""
+# [1] "KT809328.1"
+# [1] "     gene            complement(9..85)"
+# [2] "                     /gene=\"cox1\""   
+# [3] "                     /pseudo"          
+# [4] "     gene            <13268..14817"    
+# [5] "                     /gene=\"cox1\""   
+# [1] "LN901209.1"
+# [1] "     gene            complement(53..129)"
+# [2] "                     /gene=\"cox1\""     
+# [3] "                     /pseudo"            
+# [4] "     gene            13296..14861"       
+# [5] "                     /gene=\"cox1\""     
+# [1] "LN901210.1"
+# [1] "     gene            complement(227..304)"
+# [2] "                     /gene=\"cox1\""      
+# [3] "                     /pseudo"             
+# [4] "     gene            13638..15203"        
+# [5] "                     /gene=\"cox1\""      
+# [1] "gbParse: there is no sequence data in record # 12 of Saccharomyces_cerevisiae_ncbi.gb"
+# [1] "gbParse: there is no sequence data in record # 125 of Saccharomyces_cerevisiae_ncbi.gb"
+# [1] "HG994156.1"
+# [1] "     gene            11349..21552"                                              
+# [2] "                     /gene=\"COX1\""                                            
+# [3] "                     /locus_tag=\"C2U11_6151\""                                 
+# [4] "     gene            order(11349..11517,13966..14039,15555..16033,17044..17223,"
+# [5] "                     18692..18897,20172..20195,21080..21552)"                   
+# [6] "                     /gene=\"COX1\""                                            
+# [7] "                     /locus_tag=\"C2U11_6147\""                                 
+# [8] "     gene            order(11349..11517,13966..14039,15555..16020,16021..16033,"
+# [9] "                     17044..17223,18692..18897,20172..20195,21080..21552)"      
+# [10] "                     /gene=\"COX1\""                                            
+# [11] "                     /locus_tag=\"C2U11_6143\""                                 
+# [1] "LR999888.1"
+# [1] "     gene            11349..21552"                                              
+# [2] "                     /gene=\"COX1\""                                            
+# [3] "                     /locus_tag=\"EO220_6159\""                                 
+# [4] "     gene            order(11349..11517,13966..14039,15555..16033,17044..17223,"
+# [5] "                     18692..18897,20172..20195,21080..21552)"                   
+# [6] "                     /gene=\"COX1\""                                            
+# [7] "                     /locus_tag=\"EO220_6151\""                                 
+# [8] "     gene            order(11349..11517,13966..14039,15555..16033,17044..17223,"
+# [9] "                     18692..18897,20172..20195,21080..21552)"                   
+# [10] "                     /gene=\"COX1\""                                            
+# [11] "                     /locus_tag=\"EO220_6155\""                                 
+# [1] "MT471321.1"
+# [1] "     gene            74680..76260"              
+# [2] "                     /gene=\"cox1\""            
+# [3] "     gene            complement(459681..461261)"
+# [4] "                     /gene=\"cox1\""            
+# [1] "MT661575.1"
+# [1] "     gene            1421..2953"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            8445..9977"    
+# [4] "                     /gene=\"COX1\""
+# [1] "KT962062.1"
+# [1] "     gene            1421..2953"           
+# [2] "                     /gene=\"COX1\""       
+# [3] "                     /gene_synonym=\"COI\""
+# [4] "     gene            8445..9977"           
+# [5] "                     /gene=\"COX1\""       
+# [6] "                     /gene_synonym=\"COI\""
+# [1] "EU658923.1"
+# [1] "     gene            1423..2955"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            8445..9977"   
+# [4] "                     /gene=\"CO1\""
+# [1] "EU660577.1"
+# [1] "     gene            1434..2966"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            8461..9993"   
+# [4] "                     /gene=\"CO1\""
+# [1] "EU660576.1"
+# [1] "     gene            1421..2953"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            8443..9975"   
+# [4] "                     /gene=\"CO1\""
+# [1] "NC_010636.1"
+# [1] "     gene            1421..2953"                 
+# [2] "                     /gene=\"COX1\""             
+# [3] "                     /db_xref=\"GeneID:6261943\""
+# [4] "     gene            8443..9975"                 
+# [5] "                     /gene=\"COX1\""             
+# [6] "                     /db_xref=\"GeneID:6261929\""
+# [1] "NC_058301.1"
+# [1] "     gene            2034..3566"                  
+# [2] "                     /gene=\"COX1\""              
+# [3] "                     /locus_tag=\"LI390_mgp17\""  
+# [4] "                     /db_xref=\"GeneID:68212244\""
+# [5] "     gene            15404..16936"                
+# [6] "                     /gene=\"COX1\""              
+# [7] "                     /locus_tag=\"LI390_mgp05\""  
+# [8] "                     /db_xref=\"GeneID:68212255\""
+# [1] "MT733875.1"
+# [1] "     gene            2034..3566"    
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            15404..16936"  
+# [4] "                     /gene=\"cox1\""
+# [1] "NC_006354.1"
+# [1] "     gene            1400..2938"                 
+# [2] "                     /gene=\"COX1\""             
+# [3] "                     /db_xref=\"GeneID:3101905\""
+# [4] "     gene            8423..9955"                 
+# [5] "                     /gene=\"COX1\""             
+# [6] "                     /db_xref=\"GeneID:3101913\""
+# [1] "AB240153.1"
+# [1] "     gene            2035..3567"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            15269..16801" 
+# [4] "                     /gene=\"CO1\""
+# [1] "AB158364.1"
+# [1] "     gene            1400..2938"   
+# [2] "                     /gene=\"COI\""
+# [3] "     gene            8423..9955"   
+# [4] "                     /gene=\"COI\""
+# [1] "JX473257.1"
+# [1] "     gene            <1..327"                                       
+# [2] "                     /gene=\"coxI\""                                
+# [3] "                     /note=\"cytochrome c oxidase subunit I; numt\""
+# [4] "                     /pseudo"                                       
+# [5] "     gene            572..>1093"                                    
+# [6] "                     /gene=\"coxI\""                                
+# [7] "                     /note=\"cytochrome c oxidase subunit I; numt\""
+# [8] "                     /pseudo"                                       
+# [1] "KT020766.1"
+# [1] "     gene            complement(33..329)"
+# [2] "                     /gene=\"cox1\""     
+# [3] "                     /pseudo"            
+# [4] "     gene            13636..15393"       
+# [5] "                     /gene=\"COX1\""     
+# [1] "NC_031213.1"
+# [1] "     gene            complement(33..329)"         
+# [2] "                     /gene=\"COX1\""              
+# [3] "                     /locus_tag=\"BI101_gp01\""   
+# [4] "                     /pseudo"                     
+# [5] "                     /db_xref=\"GeneID:29061427\""
+# [6] "     gene            13636..15393"                
+# [7] "                     /gene=\"COX1\""              
+# [8] "                     /locus_tag=\"BI101_gp02\""   
+# [9] "                     /db_xref=\"GeneID:29061421\""
+# [1] "KJ845633.1"
+# [1] "     gene            2016..3548"    
+# [2] "                     /gene=\"COX1\""
+# [3] "     gene            15094..16626"  
+# [4] "                     /gene=\"COX1\""
+# [1] "NC_007893.1"
+# [1] "     gene            2016..3548"                 
+# [2] "                     /gene=\"COX1\""             
+# [3] "                     /db_xref=\"GeneID:3974256\""
+# [4] "     gene            15098..16630"               
+# [5] "                     /gene=\"COX1\""             
+# [6] "                     /db_xref=\"GeneID:3974257\""
+# [1] "AB240152.1"
+# [1] "     gene            2016..3548"   
+# [2] "                     /gene=\"CO1\""
+# [3] "     gene            15098..16630" 
+# [4] "                     /gene=\"CO1\""
+# [1] "AB086202.1"
+# [1] "     gene            1384..2916"    
+# [2] "                     /gene=\"cox1\""
+# [3] "     gene            8395..9927"    
+# [4] "                     /gene=\"cox1\""
+
+# inspect sequence spans with location operators
+d <- unique(locRaw$loc)
+d[grep("[[:alpha:]]", d)] # 8616 / 471009 or 2%
+# print sequence spans with  nested location operators
+d[grep("\\(.*\\(", d)]
+# [1] "complement(order(7564..8430,9532..10395))"                               
+# [2] "complement(join(16980..17024,1..1548))"                                  
+# [3] "join(3434..4153,5046..5056,complement(12235..12327),21866..21911,22081..22815)"
+# [4] "complement(join(15808..15855,1..1542))"
+
+# inspect sequence spans with no location operators
+d <- unique(locRaw$loc)
+d <- d[grep("[[:alpha:]]", d, invert = TRUE)]
+# removing < and >, do all sequence spans follow the format of digit..digit
+t <- gsub("<|>", "", d)
+all(grepl("[[:digit:]]*\\.\\.[[:digit:]]*", t))
+# range of sequence lengths
+start <- as.integer(sub("\\.\\.[[:digit:]].*", "", t))
+end <- as.integer(sub("[[:digit:]].*\\.\\.", "", t))
+len <- end - start
+hist(sort(len)[1:5700], breaks = 100)
+range(len) 
+# find sequences with length less than 100 bp
+smallspans <- d[which(len < 100)]
+locRaw[locRaw$loc %in% smallspans,-c(3,5)]
+# some sequences are short since the record is an amalgamation of different regions.
+# e.g. KJ666477.1 Goniastrea pectinata voucher MTQ G61908 cytochrome c oxidase subunit I (COI) gene, partial cds; COI-trnM intergenic spacer, complete sequence; and tRNA-Met (trnM) gene, partial sequence; mitochondrial. whose COI span is <1..46
+# there are also sequences that are less than 10 bp:
+locRaw[locRaw$loc %in% d[which(len < 10)],-c(3,5)]
+# e.g.: LN824143.1 Anabathron hedleyi mitochondrial partial COI gene for cytochrome oxidase subunit 1, specimen voucher AMS, C.467225. with COI span <1..>3, but source span is 1..625, and no other genes are under features
+
+# % of records whose COI location span is less than 100 = 0.305% = 1436/471009
+(nrow(locRaw[locRaw$loc %in% smallspans,]) / nrow(locRaw))*100
+# % of sequences with small spans whose location span == source span; 55/1436
+t <- locRaw[locRaw$loc %in% smallspans,]
+t$loc <- gsub("<|>", "", t$loc)
+t[which(t$loc == t$source), -c(3,5)]
+# % of sequences whose COI span == source span is 93.33%
+t <- locRaw
+t$loc <- gsub("<|>", "", t$loc)
+(nrow(t[t$loc == t$source,]) / nrow(t))*100
+
+# function for extracting sequence from GenBank record
+# assumes ORIGIN marker exists in the record
+seqData <- function(gbrecord) {
+  seq <- gbrecord[(grep("^ORIGIN", gbrecord)+1):(grep("^//", gbrecord)-1)]
+  seq <- toupper(paste(gsub("[[:digit:]]| ", "", seq), collapse = ""))
+  return(seq)
+}
+
+# testing
+files <- head(list.files(pattern = "_ncbi.gb"), 20)
+
+# draft for creating fasta from gb 
+for (i in 1:length(files)) {
+  gblist <- gbParse(files[i])
+  
+  # empty vector where fasta will be assembled per .gb
+  f <- vector()
+  for (j in 1:length(gblist)) {
+    # perform actions per record
+    record <- gblist[[j]]
+    
+    # get record metadata 
+    data <- recInfo(record)
+    
+    # get info on coi features
+    coi <- coiInfo(record)
+    # remove < and > from COI location span
+    coi$loc <- gsub("<|>", "", coi$loc)
+    
+    # get whole sequence
+    seq <- seqData(record)
+    
+    # condition 1: 
+    # 1) there is only one COI sequence span in the record
+    # 2) there is no location operator in the COI sequence span
+    # 3) COI sequence span is the same as source sequence span
+    condition <- (length(coi$gene) == 1 & !grepl("[[:alpha:]]", coi$loc) & data$source == coi$loc)
+    if(condition) {
+      # assemble fasta
+      id <- paste0(">", data$version, " ", data$def)
+      f <- c(f, id, seq)
+    }
+    
+    # condition 2: 
+    # 1) there is only one COI sequence span in the record
+    # 2) there is no location operator in the COI sequence span
+    # 3) COI sequence span differs from source sequence span
+    condition <- (length(coi$gene) == 1 & !grepl("[[:alpha:]]", coi$loc) & data$source != coi$loc)
+    if(condition) {
+      # assemble fasta
+      id <- paste0(">", data$version, " ", data$def)
+      f <- c(f, id, seq)
+  }
+}
+
+  
+#### scratch: 
+ex1 <- "order(7564..8430,9532..10395)"
+ex2 <- "complement(order(7564..8430,9532..10395))"
+
+# remove order and parenthesis
+e <- gsub("order")
 
 
 
 
-
-
+###########################
 ptm <- proc.time()
 # put function here:
 
