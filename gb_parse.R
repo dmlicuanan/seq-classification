@@ -1042,7 +1042,7 @@ d <- unique(locRaw$loc)
 d <- d[grep("[[:alpha:]]", d, invert = TRUE)]
 # removing < and >, do all sequence spans follow the format of digit..digit
 t <- gsub("<|>", "", d)
-all(grepl("[[:digit:]]*\\.\\.[[:digit:]]*", t))
+all(grepl("^[[:digit:]]*\\.\\.[[:digit:]]*$", t))
 # range of sequence lengths
 start <- as.integer(sub("\\.\\.[[:digit:]].*", "", t))
 end <- as.integer(sub("[[:digit:]].*\\.\\.", "", t))
@@ -1077,70 +1077,152 @@ seqData <- function(gbrecord) {
   return(seq)
 }
 
-# testing
-files <- head(list.files(pattern = "_ncbi.gb"), 20)
+# function for cutting a given sequence based on a location span
+# seq = sequence to be cut
+# start = vector of sequence starts
+# end = vector of sequence stops
+seqCut <- function(seq, start, end) {
+  # vector to hold cut sequences
+  vec <- vector()
+  for (i in 1:length(start)) {
+    vec[i] <- substr(seq, start = start[i], stop = end[i])
+  }
+  return(vec)
+}
 
-# draft for creating fasta from gb 
+# files for conversion to COI fastas
+files <- list.files(pattern = "_ncbi.gb")
+
+# for loop for converting .gbs to .fastas
+# load required package:
+library(seqinr)
+# sequences are restricted to COI locations
+# 41.44767 elapsed minutes to run (NCBI format)
 for (i in 1:length(files)) {
   gblist <- gbParse(files[i])
   
   # empty vector where fasta will be assembled per .gb
   f <- vector()
+  # do actions per record in the .gb file
   for (j in 1:length(gblist)) {
-    # perform actions per record
+    # take jth record
     record <- gblist[[j]]
     
     # get record metadata 
     data <- recInfo(record)
     
-    # get info on coi features
-    coi <- coiInfo(record)
-    # remove < and > from COI location span
-    coi$loc <- gsub("<|>", "", coi$loc)
+    # id info for sequence (unique for each record)
+    # id <- paste0(">", data$version, " ", data$def)
+    
+    # id if NCBI format will be overriden for kraken format
+    id <- paste0(">", "kraken:taxid|", data$taxid)
     
     # get whole sequence
     seq <- seqData(record)
+        
+    # get info on coi features
+    coi <- coiInfo(record)
     
-    # condition 1: 
-    # 1) there is only one COI sequence span in the record
-    # 2) there is no location operator in the COI sequence span
-    # 3) COI sequence span is the same as source sequence span
-    condition <- (length(coi$gene) == 1 & !grepl("[[:alpha:]]", coi$loc) & data$source == coi$loc)
-    if(condition) {
-      # assemble fasta
-      id <- paste0(">", data$version, " ", data$def)
-      f <- c(f, id, seq)
-    }
+    # remove < and > from COI location span
+    coi$loc <- gsub("<|>", "", coi$loc)
     
-    # condition 2: 
-    # 1) there is only one COI sequence span in the record
-    # 2) there is no location operator in the COI sequence span
-    # 3) COI sequence span differs from source sequence span
-    condition <- (length(coi$gene) == 1 & !grepl("[[:alpha:]]", coi$loc) & data$source != coi$loc)
-    if(condition) {
-      # assemble fasta
-      id <- paste0(">", data$version, " ", data$def)
-      f <- c(f, id, seq)
-  }
-}
-
+    # filter coi location info based on content
+    # remove coi info if there is nesting of location operators
+    coi$loc <- coi$loc[!grepl("\\(.*\\(.*", coi$loc)]
+    # remove coi info if location operator order() is used
+    coi$loc <- coi$loc[!grepl("order\\(", coi$loc)]
+    
+    # only proceed if there are remaining location spans
+    if(length(coi$loc) > 0) {
+      
+      # condition 1:
+      # coi location span follows format of digit..digit
+      cond <- grepl("^[[:digit:]]*\\.\\.[[:digit:]]*$", coi$loc)
+      if(any(cond)) {
+        # restrict location spans 
+        span <- coi$loc[cond]
+        # take sequence start and end
+        start <- as.numeric(gsub("\\.\\.[[:digit:]]*$", "", span))
+        end <- as.numeric(gsub("^[[:digit:]]*\\.\\.", "", span))
+        # cut sequence
+        seqtemp <- seqCut(seq, start, end)
+        # fill in f depending on length of seq
+        for (k in 1:length(seqtemp)) { f <- c(f, id, seqtemp[k]) }
+      }
+      
+      # condition 2:
+      # location operator is "complement"
+      cond <- grepl("^complement\\(", coi$loc)
+      if(any(cond)) {
+        # restrict location spans 
+        span <- coi$loc[cond]
+        # take sequence start and end
+        start <- as.numeric(gsub("^complement\\(|\\.\\.[[:digit:]]*\\)$", "", span))
+        end <- as.numeric(gsub("^complement\\([[:digit:]]*\\.\\.|\\)", "", span))
+        # cut sequence
+        seqtemp <- seqCut(seq, start, end)
+        # check if there are unexpected character in a sequence
+        x <- gsub("A|B|C|D|G|H|K|M|N|R|S|T|V|W|Y", "", seq)
+        # print unexpected character if it is present
+        if(nchar(x) > 0) { print(paste(x, "in", data$version)) } 
+        # complement the sequence
+        for(l in 1:length(seqtemp)) { 
+          seqtemp[l] <- toupper(c2s(rev(comp(s2c(seqtemp[l]), ambiguous = TRUE)))) }
+        # fill in f depending on length of seq
+        for (k in 1:length(seqtemp)) { f <- c(f, id, seqtemp[k]) }  
+      }
+      
+      # condition 3:
+      # location operator is "join"
+      cond <- grepl("^join\\(", coi$loc)
+      if(any(cond)) {
+        # restrict location spans 
+        span <- coi$loc[cond]
+        # take text within join operator
+        span <- gsub("^join\\(|\\)$", "", span)
+        # split span
+        span <- strsplit(span,",")
+        # join sequences per location span given
+        for(m in 1:length(span)) {
+          # take sequence start and end
+          start <- as.numeric(gsub("\\.\\.[[:digit:]]*$", "", span[[m]]))
+          end <- as.numeric(gsub("^[[:digit:]]*\\.\\.", "", span[[m]]))
+          # cut and paste sequence
+          seqtemp <- paste(seqCut(seq, start, end), collapse = "")
+          f <- c(f, id, seqtemp)
+        }
+      } # end of condition 3
+      
+    } # if there are workable spans in the record
+  } # per record in .gb file
   
-#### scratch: 
-ex1 <- "order(7564..8430,9532..10395)"
-ex2 <- "complement(order(7564..8430,9532..10395))"
+  # write fasta if vector not empty
+  if (length(f) > 0) { 
+    # take file name and change to fasta
+    temp <- gsub("_ncbi.gb", "_ncbi.fasta", files[i])
+    
+    # paste full path to file name (NCBI format)
+    # temp <- paste("D:/Documents/NGS/entrez/wormstaxlist_gb/wormstaxlist_fasta_cut", "/", temp, sep = "")
+    # paste full path to file name (kraken format)
+    temp <- paste("D:/Documents/NGS/entrez/wormstaxlist_gb/wormstaxlist_fasta_cut_kraken", "/", temp, sep = "")
+    
+    write(f, temp) }
+} # per .gb file
 
-# remove order and parenthesis
-e <- gsub("order")
+# inspect .fastas created
+cut <- list.files(path = "D:/Documents/NGS/entrez/wormstaxlist_gb/wormstaxlist_fasta_cut", pattern = "_ncbi.fasta")
+uncut <- list.files(path = "D:/Documents/NGS/entrez/wormstaxlist_gb/wormstaxlist_fasta", pattern = "_ncbi.fasta")
+
+# list of sequences in uncut but not in cut
+setdiff(uncut, cut)
+locRaw[locRaw$file == "Polyplacotoma_mediterranea_ncbi.gb",]
 
 
 
 
-###########################
+##### run codes here:
 ptm <- proc.time()
 # put function here:
 
 proc.time() - ptm
-beep(5)
-
-
-
+beepr::beep(5)
