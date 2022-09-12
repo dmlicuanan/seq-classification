@@ -1220,6 +1220,103 @@ locRaw[locRaw$file == "Polyplacotoma_mediterranea_ncbi.gb",]
 
 
 
+# mine .gb files for taxid and organism 
+# this is for use in validating taxids to be attached to BOLD sequences
+# they will also be used to fill-in species with no available taxids from taxize (based on taxon or genbank accession)
+
+# modify recInfo function to extract the following from each record:
+# organism in addition to definition, version, taxid, source (range of sequence)
+recInfo2 <- function(gbrecord) {
+  # create empty list where to store record information
+  list <- vector("list", length = 5)
+  names(list) <- c("def", "version", "taxid", "source", "organism")
+  
+  # get accession version
+  list$version <- gbrecord[grep("^VERSION", gbrecord)]
+  list$version <- trimws(gsub("^VERSION", "", list$version))
+  
+  # get definition
+  # line index containing start of definition
+  ind1 <- grep("^DEFINITION", gbrecord)
+  # indices of headers
+  headers <- grep("^[[:alpha:]]", gbrecord)
+  # line index of end of definition
+  ind2 <- headers[which(headers == ind1) + 1] - 1
+  list$def <- gbrecord[ind1:ind2]
+  list$def <- paste(trimws(gsub("^DEFINITION", "", list$def)), collapse = " ")
+  # remove last period
+  list$def <- sub("[.]$", "", list$def)
+  
+  # line index containing "source"
+  ind1 <- grep("^     source", gbrecord)
+  # indices of feature starts
+  headers <- grep("^     [[:alpha:]]", gbrecord)
+  # line index of end of source key
+  ind2 <- headers[which(headers %in% ind1) + 1] - 1
+  
+  # is there only one source key in the record?
+  if (length(ind1) == 1) {
+    # restrict actions to section under source key
+    sub <- gbrecord[ind1:ind2]
+    # get taxid
+    list$taxid <- gsub("\\\"|\\s|/", "", sub[grep("db_xref=\"taxon:", sub)])
+    list$taxid <- sub("db_xref=taxon:", "", list$taxid)
+    # if there is no taxid, replace taxid with NA, and print message
+    if (length(list$taxid) == 0) { 
+      list$taxid <- NA
+      print(paste("recInfo: sequence tagged", list$version, "has no taxid"))}
+    
+    # get location range of sequence
+    list$source <- gsub("source|\\s", "", gbrecord[ind1])
+    
+    # get index of "organism" within sub
+    ind <- grep("/organism=", sub)
+    # if there is no organism, print message
+    # if there is at least one index, take 1st index
+    if(length(ind) == 0) { print(paste("recInfo2: there is no organism in sequence tagged", list$version)) } else { 
+      list$organism <- trimws(gsub("\\\"|/|organism=", "", sub[ind[1]])) 
+      # if there is more than one organism, print message
+      if(length(ind) > 1) { print(paste("recInfo2: there are", length(ind), "organisms in sequence tagged", list$version))}
+        }
+  } else { print(paste("recInfo: there is more than one source key in sequence tagged", list$version))}
+  
+  # output list of record information 
+  return(list)
+}
+
+# files to process
+files <- list.files(pattern = "_ncbi.gb")
+# non-fasta files in folder
+list.files()[grep("_ncbi.gb", invert = TRUE, list.files())]
+
+# run mining (1st run 2058.78 elapsed minutes)
+for(i in 1:length(files)) {
+  gblist <- gbParse(files[i])
+
+  # do actions per record in the .gb file
+  for (j in 1:length(gblist)) {
+    # take jth record
+    record <- gblist[[j]]
+    # get sequence info
+    data <- recInfo2(record)
+    # add file name
+    data$file <- files[i]
+
+    # proceed only if there is one value per variable in list
+    if(all(lengths(data) == rep(1, 6))) {
+      data <- as.data.frame(data)
+      write.table(data, file = "taxid_table_genbank.txt",
+                  append = TRUE, row.names = FALSE, col.names = FALSE,
+                  quote = TRUE, sep = "|", )
+    } else { print(paste("Check sequence record tagged", list$version))}
+  }
+}
+
+# read resulting table
+taxid_table_gb <- read.table(file = "taxid_table_genbank.txt", sep = "|", comment.char = "")
+
+
+
 
 ##### run codes here:
 ptm <- proc.time()
