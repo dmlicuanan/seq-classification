@@ -1312,8 +1312,11 @@ for(i in 1:length(files)) {
   }
 }
 
-# read resulting table
+# read resulting table to add variable names
 taxid_table_gb <- read.table(file = "taxid_table_genbank.txt", sep = "|", comment.char = "")
+names(taxid_table_gb) <- c("def", "version",  "taxid",  "source", "organism", "file" )
+# write table again
+write.table(taxid_table_gb, file = "taxid_table_genbank.txt", row.names = FALSE, col.names = TRUE, quote = TRUE, sep = "|")
 
 
 
