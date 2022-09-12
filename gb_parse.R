@@ -1098,6 +1098,7 @@ files <- list.files(pattern = "_ncbi.gb")
 library(seqinr)
 # sequences are restricted to COI locations
 # 41.44767 elapsed minutes to run (NCBI format)
+# 46.162 elapsed minutes to run (kraken format)
 for (i in 1:length(files)) {
   gblist <- gbParse(files[i])
   
