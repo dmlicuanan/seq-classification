@@ -300,8 +300,27 @@ length(unique(mares$id))
 gsub("kraken:taxid\\|", "", setdiff(unique(mares$id), unique(rdf$id)))
 length(gsub("kraken:taxid\\|", "", setdiff(unique(mares$id), unique(rdf$id))))
 
+# check species of taxids in MARES database but not in WORMS database
+# load packages needed
+library(data.table)
 
+# read names dump
+raw <- fread("D:/Documents/NGS/entrez/taxonomy/names.dmp", sep = "|")
+# remove last column
+raw <- raw[,-5]
 
+# change variable names
+names(raw) <- c("taxid", "name", "name_unique", "name_class")
+# variables are:
+# tax_id = the id of node associated with this name
+# name_txt = name itself
+# unique name = the unique variant of this name if name not unique
+# name class = (synonym, common name, ...)
+
+# remove tabs from all columns
+ndf <- as.data.frame(lapply(raw, trimws))
+# remove raw from environment
+rm(raw)
 
 
 
