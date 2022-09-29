@@ -1,4 +1,7 @@
-# script for formatting BOLD .fastas to kraken format
+# script for 
+# 1) formatting BOLD .fastas to kraken format
+# 2) deduplicating worms_coi.fasta (which contains both BOLD and NCBI sequences)
+# 3) extracting sequences in MARES database not unrepresented in worms_coi.fasta 
 
 # ID string of BOLD .fastas is as follows:
 # process ID|taxon|marker code|genbank accession (if present)
@@ -42,6 +45,7 @@ writeFasta <- function(id, seq, file){
 
 
 
+# formatting BOLD .fastas to kraken format
 # set working directory to location of BOLD .fastas
 setwd("D:/Documents/NGS/entrez/bold_fastas")
 # non-fasta files in folder
@@ -287,7 +291,7 @@ rdf <- unique(df)
 length(unique(rdf$id))
 
 # write fasta
-writeFasta(id = rdf$id, seq = rdf$seq, file = "worms_coi_deduplicated.fasta")
+# writeFasta(id = rdf$id, seq = rdf$seq, file = "worms_coi_deduplicated.fasta")
 
 # compare worms_coi_deduplicated.fasta with MARES pre-compiled database
 # read-in pre-compiled database
@@ -296,9 +300,9 @@ mares <- readFasta("D:/Documents/NGS/mares/mares_nobar_taxonomy/MARES_NOBAR_BOLD
 # number of unique species represented in MARES database = 78844
 length(unique(mares$id))
 
-# check taxids not in worms database
-gsub("kraken:taxid\\|", "", setdiff(unique(mares$id), unique(rdf$id)))
-length(gsub("kraken:taxid\\|", "", setdiff(unique(mares$id), unique(rdf$id))))
+# check number of taxids not in worms database = 52621
+miss <- gsub("kraken:taxid\\|", "", setdiff(unique(mares$id), unique(rdf$id)))
+length(miss)
 
 # check species of taxids in MARES database but not in WORMS database
 # load packages needed
@@ -322,6 +326,54 @@ ndf <- as.data.frame(lapply(raw, trimws))
 # remove raw from environment
 rm(raw)
 
+# dataframe of taxa not in worms_coi database
+iden <- ndf[ndf$taxid %in% miss,]
+# number of unique taxids in iden = 51631
+length(unique(iden$taxid))
+# which taxids are listed in the mares database but not in the taxdump
+setdiff(miss, unique(iden$taxid))
+length(setdiff(miss, unique(iden$taxid)))
+# 990 taxids that are in mares but not in the NCBI taxdump nor website
+
+
+
+
+
+
+# extracting sequences in MARES database not unrepresented in worms_coi.fasta 
+# read in MARES database fasta
+mares <- readFasta("D:/Documents/NGS/mares/mares_nobar_taxonomy/MARES_NOBAR_BOLD_NCBI_sl_kraken.fasta")
+# add taxid column
+mares$taxid <- gsub("kraken:taxid\\|", "", mares$id)
+
+# check mares database
+# tabulation of length of id -- all within expected length
+table(nchar(unique(mares$id)))
+# are there blank sequences?
+mares[is.na(mares$seq) | mares$seq == "" | is.na(mares$id),]
+# add sequence length column
+mares$seqlen <- nchar(mares$seq)
+# show sequences with length < 50
+mares[mares$seqlen < 50,]
+
+# set directory
+setwd("D:/Documents/NGS/entrez/kraken_fastas")
+
+# read in worms fasta database
+worms <- readFasta("worms_coi_deduplicated.fasta")
+# add taxid column
+worms$taxid <- gsub("kraken:taxid\\|", "", worms$id)
+
+# taxids in MARES not in worms fasta
+miss <- setdiff(unique(mares$taxid), unique(worms$taxid))
+
+# subset mares so that it contains only taxids not in worms fasta
+sub <- mares[mares$taxid %in% miss, ] # 801637
+# remove sequences greater than 5000
+sub <- sub[sub$seqlen < 2000,]
+
+# write fasta of sequences with taxids in MARES but not in worms fasta
+writeFasta(id = sub$id, seq = sub$seq, file = "mares_no_bar_subset.fasta")
 
 
 
