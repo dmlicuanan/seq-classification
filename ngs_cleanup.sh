@@ -73,66 +73,80 @@ ls *_R2_* | sort > $transients/fastqR2
 # create tab-delimited file with full paths
 paste $transients/fastqR1 $transients/fastqR2 > $transients/fastqIn
 
-# check if adapaters.fa reference contains Nextera adapters
-cd $bbmapResource
-# forward overhang not in reference fasta
-grep 'TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG' adapters.fa
-# reverse overhang also not in reference fasta
-grep 'GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG' adapters.fa
-# check other references
-zgrep 'TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG' nextera.fa.gz 
-zgrep 'GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG' nextera.fa.gz 
-
+# Nextera adapters are not in adapaters.fa reference so we append adapters and primers used for project
 # check list of adapters written from nextera_adapters.R
 cat $transients/addtl_nextera_adapters.fa
 # append to adapters.fa to create custom adapters list
 cat $bbmapResource/adapters.fa $transients/addtl_nextera_adapters.fa > $bbmapResource/custom_adapters.fa
 
-# change directory to input files
+# merge reads
+# go to directory of input files
 cd $in
 # test parallel with input
 parallel -j 4 --colsep '\t' echo "{2} {1}" :::: $transients/fastqIn
-# run initial filtering 
-parallel -j 1 --colsep '\t' \
-	bbduk.sh "t=4 in1='{1}' in2='{2}'" \
-	"out1='$out/bbduk/{=1 s/R1_001.fastq.gz/bbdukOut1_R1/;=}'" \
-	"out2='$out/bbduk/{=2 s/R2_001.fastq.gz/bbdukOut1_R2/;=}'" \
-	"minlength=80 ktrim=r k=23 mink=1 tbo tpe" \
-	"ref='$bbmapResource/custom_adapters.fa'" \
-	"maxns=0 qtrim=r trimq=10" \
-	"2>&1 | tee -a $out/bbduk/log_bbdukOut1" :::: $transients/fastqIn
+# merge reads 1 and 2
+parallel -j 4 --colsep '\t' --keep-order \
+	bbmerge.sh "t=4 in1='{1}' in2='{2}'" \
+	"out='$out/bbmerge/{=1 s/R1_001.fastq.gz/merged/;=}'" \
+	"outu1='$out/bbmerge/{=1 s/R1_001.fastq.gz/unmerged_R1/;=}'" \
+	"outu2='$out/bbmerge/{=2 s/R2_001.fastq.gz/unmerged_R2/;=}'" \
+	"outinsert='$out/bbmerge/bbmerge_insert_sizes'" \
+	"outadapter='$out/bbmerge/bbmerge_consensus_adapter'" \
+	"2>&1 | tee -a $out/bbmerge/log_bbmerge" :::: $transients/fastqIn
 
+# run fastqc on merged sequences
+ls $out/bbmerge/*_merged | parallel -j 4 "fastqc -o $out/fastqc {}"
+# run multiqc for merged sequences
+conda activate py3.7
+multiqc $out/fastqc/*merged_fastqc.zip -n $out/multiqc/fastqc_all_merged
+
+# trim reads
+conda activate ngs
+# go to directory of files to be trimmed
+cd $out/bbmerge
+# create list of merged reads to be trimmed
+ls *_merged > $transients/fastqmerged
+# run trimming 
+time parallel -j 4 --keep-order \
+	bbduk.sh "t=4 in='{1}'" \
+	"out='$out/bbduk/{=1 s/merged/merged_trimmed/;=}'" \
+	"minlength=80 ktrim=r k=23 mink=11 hdist=1 tbo tpe" \
+	"ref='$transients/addtl_nextera_adapters.fa'" \
+	"maxns=1 qtrim=r trimq=10" \
+	"2>&1 | tee -a $out/bbduk/log_bbduk_trim" :::: $transients/fastqmerged
+
+# fastq_screen to map reads against known genomes
 # obtain reference genomes
 fastq_screen --get_genomes --outdir $out/fastqscreen
-	
 # run fastq_screen
-fastq_screen --aligner bowtie2 --outdir "$out/fastqscreen" $(ls $out/bbduk/*R1) $(ls $out/bbduk/*R2) --conf /mnt/d/Documents/NGS/out/Manila_Bay/fastqscreen/FastQ_Screen_Genomes/fastq_screen.conf
+fastq_screen --aligner bowtie2 --outdir "$out/fastqscreen" $(ls $out/bbduk/*merged_trimmed) --conf /mnt/d/Documents/NGS/out/Manila_Bay/fastqscreen/FastQ_Screen_Genomes/fastq_screen.conf
 
-# go to directory of fastq_screen outputs
+# multiqc of fastq_screen outputs
 cd $out/fastqscreen
 # activate py3.7
 conda activate py3.7
 # run multiqc for outputs of fastqscreen
-multiqc ./*_screen* -n $out/multiqc/fastqscreen_1
+multiqc ./*merged_trimmed_screen* -n $out/multiqc/fastqscreen_merged_trimmed
 
-# create list of fastq files to undergo further decontamination
-sed 's/R1_001.fastq.gz/bbdukOut1_R1/;s/R2_001.fastq.gz/bbdukOut1_R2/' $transients/fastqIn > $transients/fastqbbdukOut1
-
-# go to location of files to be filtered
-cd $out/bbduk
-# change to environment with bbduk.sh
+# filter reads
 conda activate ngs
+# create list of merged trimmed reads to filter
+sed 's/$/_trimmed/' $transients/fastqmerged > $transients/fastqmerged_trimmed
+# go to directory of merged trimmed reads to be filtered
+cd $out/bbduk
 # filter out phiX and sequencing artifacts
-parallel -j 1 --colsep '\t' \
-	bbduk.sh "t=4 in1='{1}' in2='{2}'" \
-	"out1='$out/bbduk/{=1 s/bbdukOut1_R1/bbdukOut2_R1/;=}'" \
-	"out2='$out/bbduk/{=2 s/bbdukOut1_R2/bbdukOut2_R2/;=}'" \
+parallel -j 4 --keep-order \
+	bbduk.sh "t=4 in='{1}' k=31" \
+	"out='$out/bbduk/{=1 s/merged_trimmed/merged_trimmed_filtered/;=}'" \
 	"ref='$bbmapResource/phix174_ill.ref.fa.gz,$bbmapResource/sequencing_artifacts.fa.gz'" \
-	"stats='$out/bbduk/stats_bbdukOut2' statscolumns=5" \
-	"2>&1 | tee -a $out/bbduk/log_bbdukOut2" :::: $transients/fastqbbdukOut1
+	"stats='$out/bbduk/stats_filter' statscolumns=5" \
+	"2>&1 | tee -a $out/bbduk/log_bbduk_filter" :::: $transients/fastqmerged_trimmed
+
 # only 1B-16S-Metazoa_S23_L001_bbdukOut2_R1  1B-16S-Metazoa_S23_L001_bbdukOut2_R2 with filtered
+
 
 # references
 # https://uqbioinfo.github.io/pdf/2018-08-08-James.pdf 
 # http://barcwiki.wi.mit.edu/wiki/SOPs/qc_shortReads
 # https://jgi.doe.gov/data-and-tools/software-tools/bbtools/bb-tools-user-guide/data-preprocessing/
+# https://www.protocols.io/view/illumina-fastq-filtering-dm6gp9d5vzpn/v1?step=1
