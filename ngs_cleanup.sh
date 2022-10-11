@@ -223,9 +223,14 @@ cd $out/bbduk
 # create list of fastq for kraken (COI) classification (merged)
 ls *UM*_merged_trimmed* > $transients/kraken_coi_merged
 # kraken COI classification for merged sequences
+parallel -j 1 --keep-order kraken2 "--db $kraken_db --threads 4" \
+	"--use-names --output $out/kraken/{=1 s/$/.kraken/;=} {1}" \
+	"2>&1 | tee -a $out/kraken/log_kraken_coi_merged" :::: $transients/kraken_coi_merged
+# create report
 parallel -j 1 --keep-order kraken2 "--db $kraken_db --threads 4 --output -" \
 	"--report $out/kraken/{=1 s/$/.krakenReport/;=} {1}" \
-	"2>&1 | tee -a $out/kraken/log_kraken_coi_merged" :::: $transients/kraken_coi_merged
+	"2>&1 | tee -a $out/kraken/log_krakenReport_coi_merged" :::: $transients/kraken_coi_merged
+# use-names does not work for kraken reports
 
 # create list of fastq for kraken (COI) classification (unmerged but paired)	
 # per read
@@ -236,9 +241,14 @@ ls *UM*unmerged_trimmed_R2 | sort > $transients/kraken_coi_unmerged_R2
 paste $transients/kraken_coi_unmerged_R1 $transients/kraken_coi_unmerged_R2 > $transients/kraken_coi_unmerged
 # kraken COI classification for unmerged but paired sequences
 parallel -j 1 --colsep '\t' --keep-order \
-	kraken2 "--db $kraken_db --threads 4 --paired --use-names --output -" \
-	"--report $out/kraken/{=1 s/_R1/.krakenReport/;=} {1} {2}" \
+	kraken2 "--db $kraken_db --threads 4 --paired" \
+	"--use-names --output $out/kraken/{=1 s/_R1/.kraken/;=} {1} {2}" \
 	"2>&1 | tee -a $out/kraken/log_kraken_coi_unmerged" :::: $transients/kraken_coi_unmerged
+# create report
+parallel -j 1 --colsep '\t' --keep-order \
+	kraken2 "--db $kraken_db --threads 4 --paired --output -" \
+	"--report $out/kraken/{=1 s/_R1/.krakenReport/;=} {1} {2}" \
+	"2>&1 | tee -a $out/kraken/log_krakenReport_coi_unmerged" :::: $transients/kraken_coi_unmerged
 
 
 
@@ -253,3 +263,74 @@ pavian::runApp(port=5000)
 # http://barcwiki.wi.mit.edu/wiki/SOPs/qc_shortReads
 # https://jgi.doe.gov/data-and-tools/software-tools/bbtools/bb-tools-user-guide/data-preprocessing/
 # https://www.protocols.io/view/illumina-fastq-filtering-dm6gp9d5vzpn/v1?step=1
+
+
+
+
+
+# counts per stage (summarized in read_counts.xlsx)
+cd /mnt/d/Documents/NGS/input/fastqFiles/Manila_Bay
+# get sample names
+wc -l *-UM*R1* | awk '{print $2}' | cut -d '_' -f 1,2
+wc -l *-16S*R1* | awk '{print $2}' | cut -d '_' -f 1,2
+wc -l *-OPH*R1* | awk '{print $2}' | cut -d '_' -f 1,2
+
+# R1 raw files 
+for file in $(ls *-UM*R1*); do zcat $file | wc -l; done
+for file in $(ls *-16S*R1*); do zcat $file | wc -l; done
+for file in $(ls *-OPH*R1*); do zcat $file | wc -l; done
+# R2 raw files (just the same as R1)
+for file in $(ls *-UM*R2*); do zcat $file | wc -l; done
+for file in $(ls *-16S*R2*); do zcat $file | wc -l; done
+for file in $(ls *-OPH*R2*); do zcat $file | wc -l; done
+
+
+# merged
+cd /mnt/d/Documents/NGS/out/Manila_Bay/bbmerge
+wc -l *-UM*merged | awk '{print $1}' 
+wc -l *-16S*merged | awk '{print $1}' 
+wc -l *-OPH*merged | awk '{print $1}' 
+
+# merged_trimmed
+cd /mnt/d/Documents/NGS/out/Manila_Bay/bbduk 
+wc -l *-UM*merged_trimmed | awk '{print $1}' 
+wc -l *-16S*merged_trimmed | awk '{print $1}' 
+wc -l *-OPH*merged_trimmed | awk '{print $1}' 
+
+# merged_trimmed_filtered
+wc -l *-UM*merged_trimmed_filtered | awk '{print $1}' 
+wc -l *-16S*merged_trimmed_filtered | awk '{print $1}' 
+wc -l *-OPH*merged_trimmed_filtered | awk '{print $1}' 
+
+# unmerged
+cd /mnt/d/Documents/NGS/out/Manila_Bay/bbmerge
+wc -l *-UM*unmerged_R1 | awk '{print $1}' 
+wc -l *-16S*unmerged_R1 | awk '{print $1}' 
+wc -l *-OPH*unmerged_R1 | awk '{print $1}' 
+wc -l *-UM*unmerged_R2 | awk '{print $1}' 
+wc -l *-16S*unmerged_R2 | awk '{print $1}' 
+wc -l *-OPH*unmerged_R2 | awk '{print $1}' 
+
+# unmerged_trimmed
+cd /mnt/d/Documents/NGS/out/Manila_Bay/bbduk 
+wc -l *-UM*unmerged_trimmed_R1| awk '{print $1}' 
+wc -l *-16S*unmerged_trimmed_R1 | awk '{print $1}' 
+wc -l *-OPH*unmerged_trimmed_R1 | awk '{print $1}' 
+wc -l *-UM*unmerged_trimmed_R2| awk '{print $1}' 
+wc -l *-16S*unmerged_trimmed_R2 | awk '{print $1}' 
+wc -l *-OPH*unmerged_trimmed_R2 | awk '{print $1}' 
+
+# unmerged_trimmed_filtered
+wc -l *-UM*unmerged_trimmed_filtered_R1 | awk '{print $1}' 
+wc -l *-16S*unmerged_trimmed_filtered_R1 | awk '{print $1}' 
+wc -l *-OPH*unmerged_trimmed_filtered_R1 | awk '{print $1}' 
+wc -l *-UM*unmerged_trimmed_filtered_R2 | awk '{print $1}' 
+wc -l *-16S*unmerged_trimmed_filtered_R2 | awk '{print $1}' 
+wc -l *-OPH*unmerged_trimmed_filtered_R2 | awk '{print $1}' 
+
+# merged_trimmed_classified
+cd /mnt/d/Documents/NGS/out/Manila_Bay/kraken 
+for file in $(ls *-UM*_merged_trimmed.kraken); do cut -f 1 $file | grep 'C' | wc -l; done
+# unmerged_trimmed_classified
+for file in $(ls *-UM*_unmerged_trimmed.kraken); do cut -f 1 $file | grep 'C' | wc -l; done
+
