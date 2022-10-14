@@ -497,3 +497,57 @@ done
 # move files to compiled_gb
 mv *_ncbi.gb compiled_gb
 
+
+
+
+########## download of 16S sequences (2022/10/14)
+# set working directory 
+cd /mnt/d/Documents/NGS/entrez/
+
+# use API key of amlicuanan@alum.up.edu.ph 
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+
+# create directory where GenBank files will be saved:
+mkdir -p wormstaxlist_gb_16S/raw
+
+# check taxa with special characters 
+# all special characters must be URL encoded -- https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESearch
+# grep -v "^[a-zA-Z -.]*$" wormstaxlist 
+
+# remove strings [sensu lato] and (incertae sedis) + characters × and ,
+# delete lines with [non-Uristidae]
+# convert all characters to ascii
+# remove single and double quotes
+# sed -e "s/\( \[sensu lato\]\| (incertae sedis)\|[×,]\)//" wormstaxlist | sed '/\[non-Uristidae\]/d' | iconv -f utf-8 -t ascii//translit | tr -d \'\" > wormstaxlist_cleaned
+# check if all special characters are removed
+# grep -v "^[a-zA-Z -.]*$" wormstaxlist_cleaned 
+
+# add FIELDS to each line in taxa list
+sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' wormstaxlist_cleaned > wormstaxlist_fin_16S
+
+# set variable
+export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
+
+# create function for downloading GB flat file
+mydownload() {
+query="$1"
+IFS=$'\n'
+search=$(esearch -db nuccore -query "$query") 
+count=$(echo "$search" | xtract -pattern Count -element Count)
+if [ $count -gt 0 ]
+then 
+filename=$(echo "$query" | sed 's/ /_/;s/\[.*//;s/ //')
+echo "$search" | efetch -format gb > $gbout/raw/${filename}_ncbi.gb
+fi	
+echo "$query" >> $gbout/wormstaxlist_fin_16S_done
+}
+export -f mydownload
+
+# initial run:
+# run in parallel (10 jobs at a time, delayed start of 1.1 seconds)
+# save errors to log_ncbi_16S.txt 
+parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin_16S 2>&1 | tee -a $gbout/log_ncbi_16S.txt 
+
+# for succeeding runs, remove species that have already been run
+comm <(sort -u wormstaxlist_fin_16S) <(sort -u $gbout/wormstaxlist_fin_16S_done) > wormstaxlist_fin_16S_reduced -23
+parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin_16S_reduced 2>&1 | tee -a $gbout/log_ncbi_16S.txt 
