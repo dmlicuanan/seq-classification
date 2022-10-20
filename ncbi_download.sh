@@ -500,7 +500,7 @@ mv *_ncbi.gb compiled_gb
 
 
 
-########## download of 16S sequences (2022/10/14)
+########## download of 16S sequences (2022/10/14 - 2022/10/18)
 # set working directory 
 cd /mnt/d/Documents/NGS/entrez/
 
@@ -508,7 +508,7 @@ cd /mnt/d/Documents/NGS/entrez/
 export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
 
 # create directory where GenBank files will be saved:
-mkdir -p wormstaxlist_gb_16S/raw
+# mkdir -p wormstaxlist_gb_16S/raw
 
 # check taxa with special characters 
 # all special characters must be URL encoded -- https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.ESearch
@@ -523,7 +523,7 @@ mkdir -p wormstaxlist_gb_16S/raw
 # grep -v "^[a-zA-Z -.]*$" wormstaxlist_cleaned 
 
 # add FIELDS to each line in taxa list
-sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' wormstaxlist_cleaned > wormstaxlist_fin_16S
+# sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' wormstaxlist_cleaned > wormstaxlist_fin_16S
 
 # set variable
 export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
@@ -551,3 +551,25 @@ parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin_16S 2>&1 | tee -a $g
 # for succeeding runs, remove species that have already been run
 comm <(sort -u wormstaxlist_fin_16S) <(sort -u $gbout/wormstaxlist_fin_16S_done) > wormstaxlist_fin_16S_reduced -23
 parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin_16S_reduced 2>&1 | tee -a $gbout/log_ncbi_16S.txt 
+# resulted in 1791 .gbs
+
+
+
+
+
+# check log files for species that need to be re-run (2022/10/18 - 2022/10/19)
+export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
+# match string between -term and [ORGN] in log files
+# replace underscore with space and append other fields
+grep -o -P '(?<= -term ").*?(?= \[ORGN\])' $gbout/log_ncbi_16S.txt | sed 's/_/ /g' | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' | sort -u > /mnt/d/Documents/NGS/entrez/wormstaxlist_16S_rerun
+
+# perform re-run
+cd /mnt/d/Documents/NGS/entrez
+parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_16S_rerun 2>&1 | tee -a $gbout/log_ncbi_16S_rerun.txt 
+# 2nd re-run
+grep -o -P '(?<= -term ").*?(?= \[ORGN\])' $gbout/log_ncbi_16S_rerun.txt | sed 's/_/ /g' | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' | sort -u > /mnt/d/Documents/NGS/entrez/wormstaxlist_16S_rerun
+parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_16S_rerun 2>&1 | tee -a $gbout/log_ncbi_16S_rerun_2.txt 
+# 3rd re-run
+grep -o -P '(?<= -term ").*?(?= \[ORGN\])' $gbout/log_ncbi_16S_rerun_2.txt | sed 's/_/ /g' | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' | sort -u > /mnt/d/Documents/NGS/entrez/wormstaxlist_16S_rerun
+parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_16S_rerun 2>&1 | tee -a $gbout/log_ncbi_16S_rerun_3.txt 
+# total of 1795 .gbs so far
