@@ -58,3 +58,102 @@ wormstaxlist[grep("[[:punct:]]", wormstaxlist)]
 f <- file("D:/Documents/NGS/entrez/wormstaxlist", open="wb")
 cat(wormstaxlist, file = f, sep = "\n")
 close(f)
+
+
+
+
+
+# wormstaxlist is incomplete since there are 52621 taxids not represented in the worms_coi.fasta
+# for COI sequences, we just extracted the corresponding sequences in the MARES database then added them to worms_coi.fasta (see bold_format.R)
+# for 16S sequences, the sequences need to be downloaded from NCBI, so we need a taxa list 
+
+# some codes below from bold_format.R
+# readFasta function
+readFasta <- function(file){
+  raw <- readLines(file)  
+  indNames <- grep(">", raw)  
+  stSeq <- indNames + 1  
+  enSeq <- c(indNames[-1] - 1, length(raw))  
+  seqOut <- mapply(function(s, e, inSeq){paste(inSeq[s:e], collapse = "")},
+                   s = stSeq, e = enSeq, MoreArgs = list(inSeq = raw))  
+  id <- gsub(">", "", raw[indNames])  
+  return(data.frame(id = id, seq = seqOut, stringsAsFactors = FALSE))
+}
+
+# read in MARES database fasta
+mares <- readFasta("D:/Documents/NGS/mares/mares_nobar_taxonomy/MARES_NOBAR_BOLD_NCBI_sl_kraken.fasta")
+# add taxid column
+mares$taxid <- gsub("kraken:taxid\\|", "", mares$id)
+
+# read in worms fasta database
+worms <- readFasta("D:/Documents/NGS/entrez/kraken_fastas/worms_coi_deduplicated.fasta")
+# add taxid column
+worms$taxid <- gsub("kraken:taxid\\|", "", worms$id)
+
+# taxids in MARES but not in worms fasta
+miss <- setdiff(unique(mares$taxid), unique(worms$taxid))
+
+# read in nodes.dmp from NCBI taxdump to get corresponding taxa name of taxids
+names <- data.table::fread("D:/Documents/NGS/entrez/taxonomy/names.dmp", sep = "|", drop = 5, col.names = c("taxid", "name", "name_unique", "name_class"))
+# variables are:
+# tax_id = the id of node associated with this name
+# name_txt = name itself
+# unique name = the unique variant of this name if name not unique
+# name class = (synonym, common name, ...)
+
+# remove tabs from all columns
+names <- as.data.frame(lapply(names, trimws))
+
+# reduce names so that only scientific names appear
+names <- names[names$name_class == "scientific name", ]
+
+# compile results
+df <- data.frame(taxid = miss, 
+                 taxon = names$name[match(miss, names$taxid)],
+                 name_unique = names$name_unique[match(miss, names$taxid)])
+
+# load library
+library(stringr)
+
+# get taxa that are not empty/NA
+taxa <- df$taxon[!is.na(df$taxon) & df$taxon != ""]
+# remove parentheses and all text within
+taxa <- str_replace(taxa, " \\s*\\([^\\)]+\\)", "")
+# remove NAs and get unique values
+taxa <- unique(taxa[!is.na(taxa)])
+
+# clean 1st and 2nd words separately
+temp <- data.frame(genus = word(taxa, 1), species = word(taxa, 2))
+
+# for 1st word:
+# only keep taxa if genus starts with capital letter
+temp <- temp[grep("^[A-Z]", temp$genus),]
+# remove taxa if there is ' - ( ) in genus
+temp <- temp[grep("[\\'\\-\\(\\)]", temp$genus, perl = TRUE, invert = TRUE), ]
+
+# for 2nd word:
+# replace second word with "" if starts with a capital letter
+temp$species <- ifelse(grepl("^[A-Z]", temp$species), "", temp$species)
+# replace NA with ""
+temp$species <- ifelse(is.na(temp$species), "", temp$species)
+# remove rows with quotes in species epithet
+temp <- temp[grep("[\\']", temp$species, perl = TRUE, invert = TRUE), ]
+
+# empty vector for collapsed genus + species
+taxa <- vector(mode = "character", nrow(temp))
+# collapse strings together
+for(i in 1:nrow(temp)) { 
+  taxa[i] <- trimws(paste(temp$genus[i], temp$species[i], collapse = " ")) }
+
+# remove taxa with unexpected symbols:
+taxa[grep(pattern = "^[a-zA-Z -.]*$", invert = TRUE, taxa)]
+taxa <- unique(taxa[grep(pattern = "^[a-zA-Z -.]*$", taxa)])
+
+# check which have special characters in string, besides period
+s <- gsub("\\.", "", taxa)
+s[grep("[[:punct:]]", s)]
+
+# write file readable in Unix
+f <- file("D:/Documents/NGS/entrez/marestaxlist_uniq", open="wb")
+cat(taxa, file = f, sep = "\n")
+close(f)
