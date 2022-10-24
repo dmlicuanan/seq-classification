@@ -1,7 +1,4 @@
-# set directory to location of fastq files
-cd /mnt/d/Documents/NGS/input/fastqFiles/Manila_Bay
-
-# create directory for outputs
+# create directories for outputs
 mkdir /mnt/d/Documents/NGS/out/Manila_Bay
 # create directory for fastqc outputs
 mkdir /mnt/d/Documents/NGS/out/Manila_Bay/fastqc
@@ -17,14 +14,18 @@ mkdir /mnt/d/Documents/NGS/out/Manila_Bay/fastqscreen
 mkdir /mnt/d/Documents/NGS/out/Manila_Bay/kraken
 
 # activate ngs conda environment (python version 3.8.13)
+# all packages (except multiqc) were installed here: fastqc, bbtools, fastq_screen
 conda activate ngs
 
+# 1. check sequence quality using fastQC
+# set directory to location of fastq files
+cd /mnt/d/Documents/NGS/input/fastqFiles/Manila_Bay
 # check quality of sequences using fastQC 
 ls *fastq.gz | parallel -j 4 "fastqc -o /mnt/d/Documents/NGS/out/Manila_Bay/fastqc {}"
 
+# 2. summarize fastQC results with multiQC
 # change conda environment to use multiQC which runs with python 3.7
 conda activate py3.7
-
 # change directory to location of fastqc files
 cd /mnt/d/Documents/NGS/out/Manila_Bay/fastqc
 # run multiQC (https://multiqc.info/docs/#using-multiqc-reports)
@@ -56,8 +57,8 @@ multiqc ./[0-9]*_fastqc.zip -n /mnt/d/Documents/NGS/out/Manila_Bay/multiqc/fastq
 
 
 
-
-# change environment again for bbduk
+# 3. prepare input files for merging and trimming
+# change environment again for bbtools
 conda activate ngs
 
 # set shell variables
@@ -72,23 +73,28 @@ transients=/mnt/d/Documents/NGS/out/Manila_Bay/transients
 # directory of kraken database
 kraken_db=/mnt/d/Documents/NGS/kraken_db
 
-# change directory to input files
+# change directory to input (fastq) files
 cd $in
 # create list of Read 1 fastq
 ls *_R1_* | sort > $transients/fastqR1
 # create list of Read 2 fastq
 ls *_R2_* | sort > $transients/fastqR2
-# create tab-delimited file with full paths
+# create tab-delimited file with full paths; this will be the input for bbmegere
 paste $transients/fastqR1 $transients/fastqR2 > $transients/fastqIn
 
-# Nextera adapters are not in adapaters.fa reference so we append adapters and primers used for project
+# Nextera adapters are not in the provided $bbmapResource/adapaters.fa 
+# thus, we create our own reference with adapters and primers used for project
 # check list of adapters written from nextera_adapters.R
 cat $transients/addtl_nextera_adapters.fa
-# append to adapters.fa to create custom adapters list
-cat $bbmapResource/adapters.fa $transients/addtl_nextera_adapters.fa > $bbmapResource/custom_adapters.fa
-# edit: will use addtl_nextera_adapters.fa later when trimming reads
+# contents of custom reference addtl_nextera_adapters.fa:
+# 1) first round PCR primer overhangs 
+# 2) locus-specific primers with overhangs
+# 3) second round PCR primers (Nextera-style index primers where  i5 and i7 indicate the location of the barcode index sequences)
+# i5 and i7 sequences added were from PGCs sequencing report
+# P5-PCR index primer: 5’ AATGATACGGCGACCACCGAGATCTACAC[i5]TCGTCGGCAGCGTC
+# P7-PCR index primer: 5’ CAAGCAGAAGACGGCATACGAGAT[i7]GTCTCGTGGGCTCGG
 
-# merge reads
+# 4. merge reads
 # go to directory of input files
 cd $in
 # test parallel with input
@@ -117,7 +123,7 @@ conda activate ngs
 # go to directory of files to be trimmed
 cd $out/bbmerge
 
-# trimming of merged reads:
+# 5. trimming of merged reads:
 # create list of merged reads to be trimmed
 ls *_merged > $transients/fastqmerged
 # run trimming of merged reads
@@ -133,7 +139,7 @@ time parallel -j 1 --keep-order \
 # difference in # of reads after trimming (between maxn=0 and maxn=1) ranges from 80 to 3045; average # of reads added is 727.7941 (0.95-12.95% increase, average 3.79%)
 # hence, we make use of maxn=1
 
-# trimming of unmerged reads:
+# 6. trimming of unmerged reads:
 # create list of unmerged reads to be trimmed
 sed 's/R1_001.fastq.gz/unmerged_R1/;s/R2_001.fastq.gz/unmerged_R2/' $transients/fastqIn > $transients/fastqunmerged
 # run trimming of unmerged reads
@@ -155,7 +161,7 @@ multiqc $out/fastqc/*merged_trimmed_fastqc.zip -n $out/multiqc/fastqc_all_merged
 # for unmerged, trimmed sequences:
 multiqc $out/fastqc/*_unmerged_trimmed_R*fastqc.zip -n $out/multiqc/fastqc_all_unmerged_trimmed
 
-# fastq_screen to map reads against known genomes
+# 7. run fastq_screen to map reads against known genomes
 # obtain reference genomes
 fastq_screen --get_genomes --outdir $out/fastqscreen
 # run fastq_screen for all trimmed sequences (merged and unmerged)
@@ -172,7 +178,7 @@ multiqc $out/fastqscreen/*merged_trimmed_screen* -n $out/multiqc/fastqscreen_mer
 # run multiqc for outputs of fastqscreen (unmerged, trimmed)
 multiqc $out/fastqscreen/*_unmerged_trimmed_R*_screen* -n $out/multiqc/fastqscreen_unmerged_trimmed
 
-# filter reads
+# 8. filter reads
 conda activate ngs
 # create list of merged trimmed reads to filter
 sed 's/$/_trimmed/' $transients/fastqmerged > $transients/fastqmerged_trimmed
@@ -206,7 +212,7 @@ parallel -j 1 --colsep '\t' --keep-order \
 
 
 
-# kraken classification
+# 9. kraken classification
 # download taxonomy into $kraken_db directory
 kraken2-build --download-taxonomy --db $kraken_db
 
@@ -250,11 +256,10 @@ parallel -j 1 --colsep '\t' --keep-order \
 	"--report $out/kraken/{=1 s/_R1/.krakenReport/;=} {1} {2}" \
 	"2>&1 | tee -a $out/kraken/log_krakenReport_coi_unmerged" :::: $transients/kraken_coi_unmerged
 
-
-
-
 # examine output using Pavian in R
 pavian::runApp(port=5000)
+
+
 
 
 
@@ -333,4 +338,3 @@ cd /mnt/d/Documents/NGS/out/Manila_Bay/kraken
 for file in $(ls *-UM*_merged_trimmed.kraken); do cut -f 1 $file | grep 'C' | wc -l; done
 # unmerged_trimmed_classified
 for file in $(ls *-UM*_unmerged_trimmed.kraken); do cut -f 1 $file | grep 'C' | wc -l; done
-
