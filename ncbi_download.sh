@@ -553,10 +553,6 @@ comm <(sort -u wormstaxlist_fin_16S) <(sort -u $gbout/wormstaxlist_fin_16S_done)
 parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin_16S_reduced 2>&1 | tee -a $gbout/log_ncbi_16S.txt 
 # resulted in 1791 .gbs
 
-
-
-
-
 # check log files for species that need to be re-run (2022/10/18 - 2022/10/19)
 export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
 # match string between -term and [ORGN] in log files
@@ -573,3 +569,94 @@ parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_16S_rerun 2>&1 | tee -a 
 grep -o -P '(?<= -term ").*?(?= \[ORGN\])' $gbout/log_ncbi_16S_rerun_2.txt | sed 's/_/ /g' | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' | sort -u > /mnt/d/Documents/NGS/entrez/wormstaxlist_16S_rerun
 parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_16S_rerun 2>&1 | tee -a $gbout/log_ncbi_16S_rerun_3.txt 
 # total of 1795 .gbs so far
+
+
+
+
+
+# download of 16S sequences using marestaxlist_uniq (2022/10/20 - 2022/2021)
+# set working directory 
+cd /mnt/d/Documents/NGS/entrez/
+# set variable
+export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
+# use API key of amlicuanan@alum.up.edu.ph 
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+
+# check if there are taxa with special characters since all special characters must be URL encoded 
+# grep -v "^[a-zA-Z -.]*$" marestaxlist_uniq 
+
+# add FIELDS to each line in taxa list
+# sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' marestaxlist_uniq > marestaxlist_uniq_16S
+
+# function for downloading GB flat file
+mydownload() {
+query="$1"
+IFS=$'\n'
+search=$(esearch -db nuccore -query "$query") 
+count=$(echo "$search" | xtract -pattern Count -element Count)
+if [ $count -gt 0 ]
+then 
+filename=$(echo "$query" | sed 's/ /_/;s/\[.*//;s/ //')
+echo "$search" | efetch -format gb > $gbout/raw/${filename}_ncbi.gb
+fi	
+echo "$query" >> $gbout/marestaxlist_uniq_16S_done
+}
+export -f mydownload
+
+# initial run:
+# save errors to log_ncbi_16S_marestaxlist_uniq.txt 
+parallel -j 10 --delay 1.1 mydownload :::: marestaxlist_uniq_16S 2>&1 | tee -a $gbout/log_ncbi_16S_marestaxlist_uniq.txt 
+# for succeeding runs, remove species that have already been run
+comm <(sort -u marestaxlist_uniq_16S) <(sort -u $gbout/marestaxlist_uniq_16S_done) > marestaxlist_uniq_16S_reduced -23
+parallel -j 10 --delay 1.1 mydownload :::: marestaxlist_uniq_16S_reduced 2>&1 | tee -a $gbout/log_ncbi_16S_marestaxlist_uniq.txt 
+# total of 4905 .gbs so far
+
+# check log files for species that need to be re-run (2022/10/21)
+# match string between -term and [ORGN] in log files
+# replace underscore with space and append other fields
+grep -o -P '(?<= -term ").*?(?= \[ORGN\])' $gbout/log_ncbi_16S_marestaxlist_uniq.txt | sed 's/_/ /g' | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' | sort -u > /mnt/d/Documents/NGS/entrez/marestaxlist_uniq_16S_rerun
+# perform re-run
+cd /mnt/d/Documents/NGS/entrez
+parallel -j 10 --delay 1.1 mydownload :::: marestaxlist_uniq_16S_rerun 2>&1 | tee -a $gbout/log_ncbi_16S_marestaxlist_uniq_rerun.txt 
+
+# check number of hits per species (2022/10/21)
+# combine files that need counts checked
+cat wormstaxlist_fin_16S marestaxlist_uniq_16S > worms_mares_taxlist_16S
+# function for checking hits per species
+hitcount() {
+query="$1"
+IFS=$'\n'
+count=$(esearch -db nuccore -query "$query" | xtract -pattern Count -element Count) 
+spec=$(echo "$query" | cut -d \[ -f 1)
+echo "$count $spec" >> counts_worms_mares_taxlist_16S
+}
+export -f hitcount
+
+# initial run started 2022/10/21 10:33AM
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+parallel -j 10 --delay 1 --keep-order hitcount :::: worms_mares_taxlist_16S 2>&1 | tee -a log_counts_16S.txt
+
+# for successive runs:
+# remove species that already have counts from worms_mares_taxlist_16S
+# based on inverse grep; append species with [ORGN] to be more specific in grep
+grep -v -w -F -f <(cut -d ' ' -f 2- counts_worms_mares_taxlist_16S | sed 's/$/\[ORGN\]/' | sort -u) worms_mares_taxlist_16S > worms_mares_taxlist_16S_reduced
+# execute hitcount function again:
+parallel -j 10 --delay 1 --keep-order hitcount :::: worms_mares_taxlist_16S_reduced 2>&1 | tee -a log_counts_16S.txt 
+
+
+
+# next step is to 
+# scratch:
+# after initial run for counts, print species with hits > 1
+awk '$1 > 0' counts_worms_mares_taxlist_16S 
+# there are species which do not have counts yet but were printed in the file
+# despite having no counts, they are still excluded from wormstaxlist_fin_for_counts_reduced 
+awk '$1 > 0' counts_worms_mares_taxlist_16S | cut -d ' ' -f 2-
+# these species need to be extracted from counts_wormstaxlist_fin_for_counts for rerun
+# select lines that start with space and remove leading spaces and trailing spaces
+awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' 
+# merge with list of species that occurred in log_counts.txt
+# use sort -u to get unique values then append with fields
+cat <(awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//') <(grep -o -P '(?<= -term ").*?(?= \[ORGN\])' log_counts.txt | sed 's/_/ /g') | sort -u | sed 's/$/ [ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' > wormstaxlist_fin_for_counts_rerun
+# lines of wormstaxlist_fin_for_counts_rerun = 1068
+
