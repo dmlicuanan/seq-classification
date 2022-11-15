@@ -1,3 +1,15 @@
+# export conda environments for future use:
+cd /mnt/d/Documents/NGS/conda_envs
+# ngs
+conda activate ngs
+conda env export > ngs.yml
+# py3.7
+conda activate py3.7
+conda env export > py3.7.yml
+# to recreate environment:
+conda env create -f ngs.yml
+conda env create -f py3.7.yml
+
 # create directories for outputs
 mkdir /mnt/d/Documents/NGS/out/Manila_Bay
 # create directory for fastqc outputs
