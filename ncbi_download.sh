@@ -642,21 +642,72 @@ parallel -j 10 --delay 1 --keep-order hitcount :::: worms_mares_taxlist_16S 2>&1
 grep -v -w -F -f <(cut -d ' ' -f 2- counts_worms_mares_taxlist_16S | sed 's/$/\[ORGN\]/' | sort -u) worms_mares_taxlist_16S > worms_mares_taxlist_16S_reduced
 # execute hitcount function again:
 parallel -j 10 --delay 1 --keep-order hitcount :::: worms_mares_taxlist_16S_reduced 2>&1 | tee -a log_counts_16S.txt 
+# number of entries in counts_worms_mares_taxlist_16S = 272433
 
-
-
-# next step is to 
-# scratch:
-# after initial run for counts, print species with hits > 1
-awk '$1 > 0' counts_worms_mares_taxlist_16S 
-# there are species which do not have counts yet but were printed in the file
-# despite having no counts, they are still excluded from wormstaxlist_fin_for_counts_reduced 
-awk '$1 > 0' counts_worms_mares_taxlist_16S | cut -d ' ' -f 2-
-# these species need to be extracted from counts_wormstaxlist_fin_for_counts for rerun
-# select lines that start with space and remove leading spaces and trailing spaces
-awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' 
-# merge with list of species that occurred in log_counts.txt
+# prepare 16S taxa list for rerun
+# from list of hits per species for 16S, select lines that start with space and remove leading spaces and trailing spaces
+awk '$1 > 0' counts_worms_mares_taxlist_16S | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' 
+# merge with list of species that occurred in log_counts_16S.txt 
 # use sort -u to get unique values then append with fields
-cat <(awk '$1 > 0' counts_wormstaxlist_fin_for_counts | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//') <(grep -o -P '(?<= -term ").*?(?= \[ORGN\])' log_counts.txt | sed 's/_/ /g') | sort -u | sed 's/$/ [ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' > wormstaxlist_fin_for_counts_rerun
-# lines of wormstaxlist_fin_for_counts_rerun = 1068
+cat <(awk '$1 > 0' counts_worms_mares_taxlist_16S | grep "^ " | sed 's/^[[:space:]]*//;s/[[:space:]]*$//') <(grep -o -P '(?<= -term ").*?(?= \[ORGN\])' log_counts_16S.txt | sed 's/_/ /g') | sort -u | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' > worms_mares_taxlist_16S_rerun
+# lines of worms_mares_taxlist_16S_rerun = 798
 
+# run hit counter again for species with blank counts and species in log_counts_16S.txt
+# hitcount function will append new counts to counts_worms_mares_taxlist_16S so there will be duplicate species (some with blank counts, some with counts)
+parallel -j 10 --delay 1 --keep-order hitcount :::: worms_mares_taxlist_16S_rerun 2>&1 | tee -a log_counts_16S_rerun.txt 
+# note: if there are errors in log_counts_16S_rerun.txt, need to rerun those
+
+# re-run hitcount for species in log_counts_16S_rerun.txt
+grep -o -P '(?<= -term ").*?(?= \[ORGN\])' log_counts_16S_rerun.txt | sed 's/_/ /g' | sort -u | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' > worms_mares_taxlist_16S_rerun
+# delete log_counts_16S_rerun.txt
+rm log_counts_16S_rerun.txt
+# rerun hitcount
+parallel -j 10 --delay 1 --keep-order hitcount :::: worms_mares_taxlist_16S_rerun 2>&1 | tee -a log_counts_16S_rerun.txt 
+
+# check that species originally with no count, now have counts
+# use comm to compare two sorted files and only print species unique to file 1
+# file 1 is list of species with empty counts
+# file 2 is list of species with counts
+comm <(grep -v '^[0-9]' counts_worms_mares_taxlist_16S | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort -u) <(grep '^[0-9]' counts_worms_mares_taxlist_16S | cut -d ' ' -f 2- | sed 's/[[:space:]]*$//' | sort -u) -23
+# result should be empty
+
+# check that all species that need their counts checked have counts
+# file 1 is the list of species run for counts minus the fields
+# file 2 is list of species with counts
+comm <(sed 's/ \[ORGN.*//' worms_mares_taxlist_16S | sort -u) <(grep '^[0-9]' counts_worms_mares_taxlist_16S | cut -d ' ' -f 2- | sed 's/[[:space:]]*$//' | sort -u) -23
+# result should also be empty
+
+# check which species have hits but are not yet downloaded
+cd /mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S/raw/
+# file 1 is list of species with hits
+# file 2 is list of species already downloaded
+# results lists entries unique to file 1 
+comm <(grep '^[1-9]' /mnt/d/Documents/NGS/entrez/counts_worms_mares_taxlist_16S | cut -d ' ' -f 2- | sed 's/[[:space:]]*$//' | sort -u) <(ls *.gb | sed 's/_ncbi.gb//;s/_/ /;s/[[:space:]]*$//' | sort -u) -23 | sed 's/$/ [ORGN] AND (16S [GENE] OR 16s [GENE] OR 16S ribosomal RNA [GENE] OR 16S rRNA [GENE])/' > /mnt/d/Documents/NGS/entrez/worms_mares_taxlist_16S_missed
+
+# download species missed
+# set working directory 
+cd /mnt/d/Documents/NGS/entrez/
+# use API key of amlicuanan@alum.up.edu.ph 
+export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# set variable
+export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
+
+# load function for downloading GB flat file
+mydownload() {
+query="$1"
+IFS=$'\n'
+search=$(esearch -db nuccore -query "$query") 
+count=$(echo "$search" | xtract -pattern Count -element Count)
+if [ $count -gt 0 ]
+then 
+filename=$(echo "$query" | sed 's/ /_/;s/\[.*//;s/ //')
+echo "$search" | efetch -format gb > $gbout/raw/${filename}_ncbi.gb
+fi	
+echo "$query" >> $gbout/wormstaxlist_fin_16S_done
+}
+export -f mydownload
+
+# download remaining 16S sequences
+# run in parallel (10 jobs at a time, delayed start of 1.1 seconds)
+# save errors to log_ncbi_16S.txt 
+parallel -j 10 --delay 1.1 mydownload :::: worms_mares_taxlist_16S_missed  
