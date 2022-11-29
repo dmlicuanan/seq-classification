@@ -278,7 +278,7 @@ all(is.na(temp$taxid))
 
 
 
-# de-duplicate fasta
+# de-duplicate COI fastas
 # set working directory
 setwd("D:/Documents/NGS/entrez/kraken_fastas/")
 
@@ -340,7 +340,7 @@ length(setdiff(miss, unique(iden$taxid)))
 
 
 
-# extracting sequences in MARES database not unrepresented in worms_coi.fasta 
+# extracting sequences in MARES database not represented in worms_coi.fasta 
 # read in MARES database fasta
 mares <- readFasta("D:/Documents/NGS/mares/mares_nobar_taxonomy/MARES_NOBAR_BOLD_NCBI_sl_kraken.fasta")
 # add taxid column
@@ -378,9 +378,27 @@ writeFasta(id = sub$id, seq = sub$seq, file = "mares_no_bar_subset.fasta")
 
 
 
-##### run codes here:
-ptm <- proc.time()
-# put function here:
 
-proc.time() - ptm
-beepr::beep(5)
+# de-duplicate 16S fastas and remove duds
+# set working directory
+setwd("D:/Documents/NGS/entrez/kraken_fastas/")
+# load required functions:
+# 1) readFasta
+# 2) writeFasta
+
+# read in compiled fastas
+df <- readFasta("worms_mares_16S.fasta")
+
+# remove duplicates
+rdf <- unique(df)
+
+# remove ids with no taxids (corresponding to:)
+# Hordeum_vulgare_ncbi.fasta:>kraken:taxid|
+# Pecten_maximus_ncbi.fasta:>kraken:taxid|
+rdf <- rdf[!grepl("kraken:taxid\\|$", rdf$id),]
+
+# number of unique species represented = 19910
+length(unique(rdf$id))
+
+# write fasta
+# writeFasta(id = rdf$id, seq = rdf$seq, file = "worms_mares_16S_deduplicated.fasta")
