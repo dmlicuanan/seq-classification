@@ -6,6 +6,7 @@
 # https://www.ncbi.nlm.nih.gov/Sitemap/samplerecord.html#Top
 # https://www.insdc.org/submitting-standards/feature-table/#1
 
+# CONVERSION OF COI GENBANK FILES TO FASTAS
 # working directory: path of .gb files
 setwd("D:/Documents/NGS/entrez/wormstaxlist_gb/compiled_gb")
 # check number of sequences expected
@@ -1220,6 +1221,8 @@ locRaw[locRaw$file == "Polyplacotoma_mediterranea_ncbi.gb",]
 
 
 
+
+
 # mine .gb files for taxid and organism 
 # this is for use in validating taxids to be attached to BOLD sequences
 # they will also be used to fill-in species with no available taxids from taxize (based on taxon or genbank accession)
@@ -1317,6 +1320,474 @@ taxid_table_gb <- read.table(file = "taxid_table_genbank.txt", sep = "|", commen
 names(taxid_table_gb) <- c("def", "version",  "taxid",  "source", "organism", "file" )
 # write table again
 write.table(taxid_table_gb, file = "taxid_table_genbank.txt", row.names = FALSE, col.names = TRUE, quote = TRUE, sep = "|")
+
+
+
+
+
+############################
+# CONVERSION OF 16S GENBANK FILES TO FASTAS
+
+# working directory: path of .gb files
+setwd("D:/Documents/NGS/entrez/wormstaxlist_gb_16S/raw/")
+# check number of sequences expected
+# count after > is number after re-downloading bad files
+# grep "^LOCUS" *_ncbi.gb -w | wc -l = 62794
+# grep "^DEFINITION" *_ncbi.gb -w | wc -l = 62794
+# grep "^ORIGIN" *_ncbi.gb -w | wc -l = 62727
+# grep "^ORIGIN\|^WGS \|^CONTIG" *_ncbi.gb -w | wc -l = 62794
+# grep "^//" *_ncbi.gb -w | wc -l = 62794
+# grep "^     source" *_ncbi.gb -w | wc -l = 62796
+# grep "db_xref=\"taxon:" -n *_ncbi.gb | wc -l = 62796
+
+# list of .gbs to process = 4930
+files <- list.files(pattern = "_ncbi.gb")
+
+# because of inconsistencies in number of sequences expected, need to check which files have patterns outside expectations
+check <- function(gbfile) {
+  # read file
+  gb <- readLines(gbfile)
+  
+  # record indices of markers
+  m1 <- grep("^LOCUS", gb)
+  m2 <- grep("^DEFINITION", gb)
+  m3 <- grep("^ORIGIN", gb)
+  m4 <- grep("^//", gb)
+  m5 <- grep("^WGS |^CONTIG", gb) # replace ORIGIN in records with no sequences
+  m6 <- grep("^     source", gb) # there may be gbs with more that one "source"
+  # compile in list
+  occ <- list(m1, m2, m3, m4, m6)
+  lens <- sapply(occ, length)
+  
+  # return file name and counts per marker if length of occurrences are not equal
+  if (min(lens) == max(lens)) { NULL } 
+  else { return(c(gbfile, lens, length(m5))) } 
+}
+
+# apply function over entire list of files
+badfiles <- unlist(lapply(files, check))
+
+# split vector
+badmat <- as.data.frame(matrix(badfiles, byrow = TRUE, ncol = 7))
+# format dataframe
+colnames(badmat) <- c("file", "locus", "def", "ori", "end", "source", "wgs")
+badmat[,-1] <- lapply(badmat[,-1], as.numeric)
+# check counts
+all(badmat$locus == badmat$def)
+all(badmat$locus == badmat$end)
+all(badmat$locus == (badmat$ori + badmat$wgs))
+colSums(badmat[,-1])
+# consistent with grep counts in Ubuntu:
+# ORIGIN is not a consistent marker in each record
+# WGS or CONTIG replace ORIGIN, but there are no sequences
+badmat[badmat$locus != badmat$source,]
+# Hordeum_vulgare_ncbi.gb and Pecten_maximus_ncbi.gb have gb records with more than 1 source
+#                           file locus  def  ori  end source wgs
+# 1            Bacillus__ncbi.gb  6128 6128 6108 6128   6128  20
+# 2       Clunio_marinus_ncbi.gb     2    2    1    2      2   1
+# 3     Corynebacterium__ncbi.gb   806  806  802  806    806   4
+# 4     Escherichia_coli_ncbi.gb   250  250  241  250    250   9
+# 5      Hordeum_vulgare_ncbi.gb     1    1    1    1      2   0
+# 6       Mycobacterium__ncbi.gb   718  718  712  718    718   6
+# 7       Pecten_maximus_ncbi.gb     7    7    7    7      8   0
+# 8         Penicillium__ncbi.gb     3    3    2    3      3   1
+# 9      Photobacterium__ncbi.gb   205  205  200  205    205   5
+# 10  Propionibacterium__ncbi.gb   115  115   95  115    115  20
+# 11 Salmonella_enterica_ncbi.gb    29   29   28   29     29   1
+
+# some downloaded sequences do not contain 16S exclusively
+# need to cut out 16S sequences only
+# load following functions written previously for COI:
+# 1) gbParse: takes .gb file and separates records
+# 2) recInfo: takes record, returns list of definition, version, taxid, source (range of sequence)
+
+# sxsInfo modified from coiInfo funciton
+# 3) sxsInfo
+# function to extract gene and location information of 16S
+sxsInfo <- function(gbrecord) {
+  # create empty vectors where locations and 16S gene names will be compiled
+  loc <- vector()
+  gene <- vector()
+  
+  # get accession version
+  ver <- gbrecord[grep("^VERSION", gbrecord)]
+  ver <- trimws(gsub("^VERSION", "", ver))
+  
+  # get features with "rRNA or gene"
+  ind1 <- grep("^     rRNA|^     gene", gbrecord)
+  # line indices where all features start + index of ORIGIN 
+  headers <- grep("^     [[:alpha:]]|^ORIGIN", gbrecord)
+  # indices where each "rRNA" feature ends
+  ind2 <- headers[which(headers %in% ind1) + 1] - 1
+  
+  # only proceed if there is "^     rRNA or gene" in record
+  if (length(ind1) > 0) {
+    for (j in 1:length(ind1)) {
+      # examines lines per gene feature
+      sub <- gbrecord[ind1[j]:ind2[j]]
+      # 16S pattern to search for 
+      pattern <- "/gene.*16S"
+      
+      # if any 16S pattern is in the gene feature, extract location and gene name
+      if (any(grepl(pattern, sub, ignore.case = TRUE))) { 
+        # which lines contain the start of location
+        stLine <- grep("^     rRNA|^     gene", sub)
+        # which lines contain the end of location
+        endLine <- grep("^                     /", sub)[1] - 1
+        # location line
+        l <- sub[stLine:endLine]
+        # remove large spaces and collapse as one line
+        l <- gsub("^                     ", "", l)
+        l <- paste(l, collapse = "")
+        
+        # get location
+        loc <- c(loc, gsub("gene|\\s|rRNA", "", l))
+        # get gene
+        gene <- c(gene, trimws(gsub("/gene=|\"", "", sub[grep("/gene=", sub)])))
+      }
+    }
+    # if no COI pattern found in sections, print message in console
+    if (length(gene) == 0) { 
+      # print message
+      print(paste("sxsInfo: no 16S gene information in sequence tagged", ver)) }
+    
+    # put gene and loc in dataframe to check duplicates
+    d <- unique(data.frame(loc, gene))
+    # re-assign back to vectors
+    loc <- d$loc
+    gene <- d$gene
+    # return named list
+    return(list(gene = gene, loc = loc))
+  } else {
+    # print message
+    print(paste("sxsInfo: no gene information in sequence tagged", ver))
+  }
+}
+
+# location data is not simply encoded, so need to check possible characters that arise in location info 
+# all .gb files
+files <- list.files(pattern = "_ncbi.gb")
+# run gbParse, recInfo, sxsInfo (6.468833 mins elapsed time)
+for (i in 1:length(files)) {
+  # parse .gb files
+  gblist <- gbParse(files[i])
+  # nested loop
+  for (j in 1:length(gblist)) {
+    # perform actions per record
+    record <- gblist[[j]]
+    # get record and gene info
+    l1 <- recInfo(record)
+    l2 <- sxsInfo(record)
+    
+    # base nrows on number of genes listed as 16S
+    df <- data.frame(gene = l2$gene, loc = l2$loc)
+    # add unique data per record
+    df$def <- l1$def
+    df$version <- l1$version
+    df$taxid <- ifelse(is.null(l1$taxid), NA, l1$taxid) 
+    df$source <- ifelse(is.null(l1$source), NA, l1$source)
+    df$file <- files[i]
+    
+    # append df to file
+    write.table(df, "D:/Documents/NGS/entrez/wormstaxlist_gb_16S/locInfo_16S.txt", append = TRUE, col.names = FALSE, quote = FALSE, sep = "\t", row.names = FALSE)
+  }
+}
+# console outputs consistent with badmat
+
+# check location information 
+locRaw <- read.table("D:/Documents/NGS/entrez/wormstaxlist_gb_16S/locInfo_16S.txt", sep = "\t", quote = "", comment.char = "") # 63050 rows
+# add names to columns
+names(locRaw) <- c("gene", "loc", "def", "version", "taxid", "source", "file")
+
+# check the format of source
+# confirm if it always starts with 1..(length of sequence)
+temp <- locRaw$source
+# do all begin with 1..
+all(grepl("^1\\.\\.", temp))
+all(grepl("^1\\.\\.", temp[!is.na(temp)]))
+locRaw[!grepl("^1\\.\\.", temp), ]
+# do all follow the format: 1..digit
+all(grepl("^1\\.\\.[[:digit:]]*$", temp[!is.na(temp)]))
+unique(sub("^1\\.\\.[[:digit:]]*$", "", temp[!is.na(temp)]))
+# sequence lengths
+len <- as.integer(sub("^1\\.\\.", "", temp[!is.na(temp)]))
+# range of sequence lengths: 46 to 5136383
+range(len)
+# distribution of lengths
+hist(len)
+hist(sort(len)[1:61000], breaks = 100)
+# 96.90% of lengths are less than 1600 bp
+sum(len < 1600) / length(len)
+
+# which accession #s are repeated?
+df <- data.frame(table(locRaw$version))
+# vector of accession numbers that appear more than once
+dups <- df[df$Freq > 1,]$Var1
+# print duplicates based on accession #
+temp <- locRaw[locRaw$version %in% dups,]
+temp <- temp[order(temp$version),]
+head(temp[, c("version", "taxid", "source", "file")])
+# some duplicates: Bacillus__ncbi.gb vs. Bacillus_sp._ncbi.gb
+
+# number of unique accession #s in df showing duplicates
+length(unique(temp$version)) # 11252
+# number of unique entries based on record contents alone
+nrow(unique(temp[,c('def', 'version', 'taxid', 'source')]))
+# note: number of version is indicative of the #s of unique records
+
+# remove duplicates due to species synonyms to see other duplicates 
+# duplication will then be due to multiple 16S locations per record
+# remove file column
+loc <- locRaw[, -7]
+# remove duplicates based on all remaining variables
+loc <- loc[!duplicated(loc), ]
+# check again which accession numbers are repeated
+df <- data.frame(table(loc$version))
+# vector of accession numbers that appear more than once
+dups <- as.character(df[df$Freq > 1,]$Var1)
+# print duplicates based on accession #
+temp <- loc[loc$version %in% dups,]
+temp <- temp[order(temp$version),]
+temp[, c("version", "source", "loc", "gene")]
+# there are 186 records associated with more than one 16S gene location 
+length(unique(temp$version))
+
+# sxsChecker
+# function for printing all 16S features in .gb record if there is more than one
+sxsChecker <- function(gbrecord) {
+  # create empty vectors where locations and 16S gene names will be compiled
+  loc <- vector()
+  gene <- vector()
+  # vector where feature section will be stored
+  feature <- vector()
+  
+  # get features with "gene" or "rRNA"
+  ind1 <- grep("^     gene|^     rRNA", gbrecord)
+  # line indices where all features start + index of ORIGIN 
+  headers <- grep("^     [[:alpha:]]|^ORIGIN", gbrecord)
+  # indices where each "gene"or "rRNA" feature ends
+  ind2 <- headers[which(headers %in% ind1) + 1] - 1
+  
+  for (j in 1:length(ind1)) {
+    # examines lines per gene feature
+    sub <- gbrecord[ind1[j]:ind2[j]]
+    # 16S pattern to search for 
+    pattern <- "/gene.*16S"
+    
+    # if any 16S pattern is in the gene feature, extract location and gene name
+    if (any(grepl(pattern, sub, ignore.case = TRUE))) { 
+      loc <- c(loc, gsub("gene|\\s|rRNA", "", sub[grep("^     gene|^     rRNA", sub)]))
+      gene <- c(gene, trimws(gsub("/gene=|\"", "", sub[grep("/gene=", sub)])))
+      # save feature in vector
+      feature <- c(feature, sub)
+    }
+  }
+  
+  # get accession version
+  ver <- gbrecord[grep("^VERSION", gbrecord)]
+  ver <- trimws(gsub("^VERSION", "", ver))
+  
+  # if no COI pattern found in sections, print message in console
+  if (length(gene) == 0) { 
+    # print message
+    print(paste("geneInfo: no 16S gene information in sequence tagged", ver)) }
+  
+  # if there is more than one 16S feature, print accession # and feature
+  if (length(gene) > 1) {
+    print(ver)
+    print(feature)
+  }
+}
+
+# vector of accessions associated with more than one 16S location
+vers <- unique(temp$version)
+# find file names linked to example accession #s
+f <- unique(locRaw[locRaw$version %in% vers, ]$file) 
+# mapping of accession version with file name
+unique(locRaw[locRaw$version %in% vers, c("version", "file")])
+
+# print sections when 16S locations > 1
+con <- file("D:/Documents/NGS/entrez/wormstaxlist_gb_16S/sxsChecker_log.txt")
+sink(con, append=TRUE)
+# loop
+for (i in 1:length(f)) {
+  gblist <- gbParse(f[i])
+  
+  for (j in 1:length(gblist)) {
+    # perform actions per record
+    record <- gblist[[j]]
+    sxsChecker(record)
+  }
+}
+sink()
+
+# inspect sequence spans with location operators
+d <- unique(locRaw$loc)
+d[grep("[[:alpha:]]", d)] # 115 / 3792 or 3%
+# no sequence spans with  nested location operators
+d[grep("\\(.*\\(", d)]
+
+# inspect sequence spans with no location operators
+d <- unique(locRaw$loc)
+d <- d[grep("[[:alpha:]]", d, invert = TRUE)]
+# removing < and >, do all sequence spans follow the format of digit..digit
+t <- gsub("<|>", "", d)
+all(grepl("^[[:digit:]]*\\.\\.[[:digit:]]*$", t))
+# range of sequence lengths
+start <- as.integer(sub("\\.\\.[[:digit:]].*", "", t))
+end <- as.integer(sub("[[:digit:]].*\\.\\.", "", t))
+len <- end - start
+hist(len, breaks = 50)
+range(len) 
+# find sequences with length less than 100 bp
+smallspans <- d[which(len < 100)]
+locRaw[locRaw$loc %in% smallspans,-c(3,5)]
+# some sequences are short since the record is an amalgamation of different regions.
+# e.g. HE612855.1 Acanthaster planci mitochondrial partial D-loop and 16S rRNA gene, isolate KIN21. whose 16S span is 460..>509
+# there are also sequences that are less than 10 bp:
+locRaw[locRaw$loc %in% d[which(len < 10)],-c(3,5)]
+# e.g.: AJ243775.1 Cordyceps sinensis partial 16S rRNA gene, 5.8S rRNA gene, partial 26S rRNA; ITS1 and 2, sclerotium. with 16S span <1..4, but source span is 1..588
+
+# % of records whose 16S location span is less than 100 = 1.513% = 954/63050
+(nrow(locRaw[locRaw$loc %in% smallspans,]) / nrow(locRaw))*100
+# % of sequences with small spans whose location span == source span; 17/954
+t <- locRaw[locRaw$loc %in% smallspans,]
+t$loc <- gsub("<|>", "", t$loc)
+t[which(t$loc == t$source), -c(3,5)]
+# % of sequences whose COI span == source span is 89.45%
+t <- locRaw
+t$loc <- gsub("<|>", "", t$loc)
+(nrow(t[t$loc == t$source,]) / nrow(t))*100
+
+# load needed functions:
+# 1) seqData: function for extracting sequence from GenBank record
+# 2) seqCut: function for cutting a given sequence based on a location span
+
+# files for conversion to 16S fastas
+files <- list.files(pattern = "_ncbi.gb")
+
+# file which produced error because of single base position
+# record <- gbParse("Bacillus__ncbi.gb")
+# record <- record[[5981]]
+
+# for loop for converting .gbs to .fastas
+# load required package:
+library(seqinr)
+# sequences are restricted to COI locations
+# 7.717333 elapsed minutes to run (kraken format) 
+for (i in 1:length(files)) {
+  gblist <- gbParse(files[i])
+  
+  # empty vector where fasta will be assembled per .gb
+  f <- vector()
+  # do actions per record in the .gb file
+  for (j in 1:length(gblist)) {
+    # take jth record
+    record <- gblist[[j]]
+    
+    # get record metadata 
+    data <- recInfo(record)
+    
+    # id info for sequence (unique for each record)
+    # id <- paste0(">", data$version, " ", data$def)
+    
+    # id if NCBI format will be overriden for kraken format
+    id <- paste0(">", "kraken:taxid|", data$taxid)
+    
+    # get whole sequence
+    seq <- seqData(record)
+    
+    # get info on 16S features
+    sx <- sxsInfo(record)
+    
+    # remove < and > from 16S location span
+    sx$loc <- gsub("<|>", "", sx$loc)
+    
+    # filter 16S location info based on content
+    # remove 16S info if there is nesting of location operators
+    sx$loc <- sx$loc[!grepl("\\(.*\\(.*", sx$loc)]
+    # remove 16S info if location operator order() is used
+    sx$loc <- sx$loc[!grepl("order\\(", sx$loc)]
+    
+    # only proceed if there are remaining location spans
+    if(length(sx$loc) > 0) {
+      
+      # condition 1:
+      # 16S location span follows format of digit..digit
+      cond <- grepl("^[[:digit:]]*\\.\\.[[:digit:]]*$", sx$loc)
+      if(any(cond)) {
+        # restrict location spans 
+        span <- sx$loc[cond]
+        # take sequence start and end
+        start <- as.numeric(gsub("\\.\\.[[:digit:]]*$", "", span))
+        end <- as.numeric(gsub("^[[:digit:]]*\\.\\.", "", span))
+        # cut sequence
+        seqtemp <- seqCut(seq, start, end)
+        # fill in f depending on length of seq
+        for (k in 1:length(seqtemp)) { f <- c(f, id, seqtemp[k]) }
+      }
+      
+      # condition 2:
+      # location operator is "complement"
+      cond <- grepl("^complement\\(", sx$loc) & grepl("\\.\\.", sx$loc)
+      if(any(cond)) {
+        # restrict location spans 
+        span <- sx$loc[cond] 
+        # take sequence start and end and catch errors
+        # tryCatch({start <- as.numeric(gsub("^complement\\(|\\.\\.[[:digit:]]*\\)$", "", span))}, warning=function(w) print(c(data$version, j)))
+        # tryCatch({end <- as.numeric(gsub("^complement\\([[:digit:]]*\\.\\.|\\)", "", span))}, warning=function(w) print(c(data$version, j)))
+        start <- as.numeric(gsub("^complement\\(|\\.\\.[[:digit:]]*\\)$", "", span))
+        end <- as.numeric(gsub("^complement\\([[:digit:]]*\\.\\.|\\)", "", span))
+        # cut sequence
+        seqtemp <- seqCut(seq, start, end)
+        # check if there are unexpected character in a sequence 
+        x <- gsub("A|B|C|D|G|H|K|M|N|R|S|T|V|W|Y", "", seq)
+        # print unexpected character if it is present
+        if(nchar(x) > 0) { print(paste(x, "in", data$version)) } 
+        # complement the sequence
+        for(l in 1:length(seqtemp)) { 
+          seqtemp[l] <- toupper(c2s(rev(comp(s2c(seqtemp[l]), ambiguous = TRUE)))) }
+        # fill in f depending on length of seq
+        for (k in 1:length(seqtemp)) { f <- c(f, id, seqtemp[k]) }  
+      }
+      
+      # condition 3:
+      # location operator is "join"
+      cond <- grepl("^join\\(", sx$loc)
+      if(any(cond)) {
+        # restrict location spans 
+        span <- sx$loc[cond]
+        # take text within join operator
+        span <- gsub("^join\\(|\\)$", "", span)
+        # split span
+        span <- strsplit(span,",")
+        # join sequences per location span given 
+        for(m in 1:length(span)) {
+          # take sequence start and end
+          start <- as.numeric(gsub("\\.\\.[[:digit:]]*$", "", span[[m]]))
+          end <- as.numeric(gsub("^[[:digit:]]*\\.\\.", "", span[[m]]))
+          # cut and paste sequence
+          seqtemp <- paste(seqCut(seq, start, end), collapse = "")
+          f <- c(f, id, seqtemp)
+        }
+      } # end of condition 3
+      
+    } # if there are workable spans in the record
+  } # per record in .gb file
+  
+  # write fasta if vector not empty
+  if (length(f) > 0) { 
+    # take file name and change to fasta
+    temp <- gsub("_ncbi.gb", "_ncbi.fasta", files[i])
+    
+    # paste full path to file name (NCBI format)
+    # temp <- paste("D:/Documents/NGS/entrez/wormstaxlist_gb_16S/wormstaxlist_fasta_cut", "/", temp, sep = "")
+    # paste full path to file name (kraken format)
+    temp <- paste("D:/Documents/NGS/entrez/wormstaxlist_gb_16S/fasta_cut_kraken", "/", temp, sep = "")
+    
+    write(f, temp) }
+} # per .gb file
+
 
 
 
