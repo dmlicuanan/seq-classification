@@ -376,7 +376,7 @@ pavian::runApp(port=5000)
 # https://jgi.doe.gov/data-and-tools/software-tools/bbtools/bb-tools-user-guide/data-preprocessing/
 # https://www.protocols.io/view/illumina-fastq-filtering-dm6gp9d5vzpn/v1?step=1
 
-# counts per stage (summarized in read_counts.xlsx)
+# counts per stage (summarized in line_counts.xlsx)
 cd /mnt/d/Documents/NGS/input/fastqFiles/Manila_Bay
 # get sample names
 wc -l *R1*fastq.gz | awk '{print $2}' | cut -d '_' -f 1,2
@@ -426,3 +426,5 @@ wc -l *[1-2]_trimmed_filtered
 cd /mnt/d/Documents/NGS/out/Manila_Bay/kraken 
 # trimmed_classified
 for file in $(ls *L001_trimmed.kraken); do cut -f 1 $file | grep 'C' | wc -l; done
+
+# be using reads through merging step for downstream analyses
