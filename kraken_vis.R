@@ -687,8 +687,118 @@ ggplot(c,aes(x = NMDS1, y = NMDS2, colour = siteno, shape = primer)) +
 
 
 
+# check variation between replicates 
+# read-in data
+df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_read.RDS")
+# restrict entries to those with replicates (sample sequenced using uniminibarcode primer)
+# remove site 4 since it has no replicate
+# remove unclassified reads
+sub <- df[primer == "UM" & type == "sample" & site != "4A" & code == "C"]
+# summarize number of reads by site, etc (so that there is one row for each taxon in a replicate)
+sub <- sub[, .(reads = .N), by = .(site, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
+# add site number
+sub$siteno <- gsub("\\D+", "", sub$site)
+unique(sub[,c("site", "siteno")])
+
+# create empty list
+names <- c("site", "total", "mean", "sem", "common", "shared", "unique")
+l <- sapply(names, function(x) NULL)
+
+# add names of sites with replicates
+l$site <- unique(sub$siteno)
+
+for(i in 1:length(l$site)) {
+  # create subset for site
+  temp <- sub[siteno == l$site[i]]
+  # set taxonomic rank to be used for making counts 
+  temp$x <- temp$taxid
+  
+  # remove NAs 
+  temp <- temp[!is.na(x)]
+  # get unique values of taxon per replicate
+  temp <- unique(temp[, c("siteno", "site", "x")])
+   
+  # subset based on replicate
+  reps <- split(temp, temp$site)
+  
+  # get total richness in site
+  l$total[i] <- length(unique(temp$x))
+  # get mean richness across replicates and standard error of the mean
+  l$mean[i] <- round(mean(temp[, .N, by = .(site)]$N), 1)
+  l$sem[i] <- round(sd(temp[, .N, by = .(site)]$N)/sqrt(length(temp[, .N, by = .(site)]$N)), 1)
+  
+  # there are two replicates
+  if(length(reps) == 3) {
+    a <- reps[[1]]$x
+    b <- reps[[2]]$x
+    c <- reps[[3]]$x
+    
+    # taxa common across all replicates
+    common <- Reduce(intersect, list(a, b, c))
+    l$common[i] <- length(common)
+    
+    # taxa shared by at most two replicates
+    atleast <- Reduce(union, list(intersect(a, b), intersect(a, c), intersect(b,c)))
+    shared <- setdiff(atleast, common)
+    l$shared[i] <- length(shared)
+    
+    # unique 
+    unique <- Reduce(union, list(setdiff(a, union(b,c)), setdiff(b, union(a,c)), setdiff(c, union(a,b))))
+    l$unique[i] <- length(unique)
+  }
+  
+  if(length(reps) == 2) {
+    a <- reps[[1]]$x
+    b <- reps[[2]]$x
+    
+    # taxa common across all replicates
+    common <- intersect(a,b)
+    l$common[i] <- length(common)
+    
+    # NA since there are only two sets
+    l$shared[i] <- NA
+    
+    # unique 
+    unique <- union(setdiff(a, b), setdiff(b, a))
+    l$unique[i] <- length(unique)
+  }
+}
+
+# common, shared, and unique taxa as data frame
+d <- data.frame(l)
+
+# melt data frame for plotting
+dt <- melt(data.table(d), id.vars = "site", measure.vars = c("common", "shared", "unique"))
+ggplot(dt, aes(fill = variable, y = value, x = site)) + 
+  geom_bar(position= "stack", stat = "identity", width = 0.5) + 
+  labs(fill = "", x = "Site", y = "Number of taxa") + 
+  scale_x_discrete(limits = rev) + 
+  scale_fill_brewer(palette="Set3", labels = c("common across all replicates", "shared by at most 2 replicates", "unique to replicate")) +
+  geom_text(aes(label = value), colour = "black", position = position_stack(vjust = 0.5), size = 3) +
+  theme_minimal() + coord_flip() 
+
+
+
+
+
+
+# SCRATCH
+
+# read-in data
+df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_read.RDS")
+# check species in blanks
+temp <- df[df$type == "blank" | df$type == "negative",]
+temp <- df[df$type == "negative",]
+# tabulation of rank
+table(temp$taxon_rank_simp)
+# species in blanks
+unique(temp[taxon_rank_simp == "species"]$taxon)
+sub <- unique(temp[taxon_rank_simp == "species", 10:21])
+sub[phylum == "Echinodermata"]
+
+
 # add site number to df
-df$siteno <- gsub("[[:alpha:]]", "\\1", df$site)
+df$siteno <- gsub("\\D+", "", df$site)
 unique(df[,c("site", "siteno")])
 # subset df
 temp <- df[, .(reads = .N), by = .(site, primer, taxid)]
