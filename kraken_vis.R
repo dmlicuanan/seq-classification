@@ -8,6 +8,8 @@
 # 7. check resolution of kraken classification
 # 8. attach other taxonomic information to kraken classifications
 # 9. plot NMDS (site ~ taxonomic level)
+# 10. check variation between replicates 
+# 11. remove reads present in blanks and extraction negative
 
 # load packages
 library(data.table)
@@ -776,6 +778,88 @@ ggplot(dt, aes(fill = variable, y = value, x = site)) +
   scale_fill_brewer(palette="Set3", labels = c("common across all replicates", "shared by at most 2 replicates", "unique to replicate")) +
   geom_text(aes(label = value), colour = "black", position = position_stack(vjust = 0.5), size = 3) +
   theme_minimal() + coord_flip() 
+
+
+
+
+
+# remove reads present in blanks and extraction negative
+# read-in data
+df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_read.RDS")
+
+# subset df (remove unclassified reads) and restrict to COI samples since only those have blanks and negatives
+sub <- df[taxid != "0" & primer == "UM"]
+
+# get number of reads per taxon per replicate (samples)
+samp <- sub[type == "sample", .(reads = .N), by = .(site, primer, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
+# add corresponding blank per sample
+samp$blank <- ifelse(grepl("^1|^2", samp$site), "b1B", 
+                     ifelse(grepl("^8|^9", samp$site), "b8A", "b5A"))
+# check assigned blanks
+unique(samp[,c("site", "blank")])
+
+# get number of reads per taxon per replicate (extraction negative)
+neg <- sub[type == "negative", .(reads = .N), by = .(site, taxid, merged, primer)]
+# get number of reads per taxon per replicate (blanks)
+blanks <- sub[type == "blank", .(reads = .N), by = .(site, taxid)]
+
+# get number of extraction negative reads that will be subtracted
+samp$reads_neg <- neg$reads[match(samp$taxid, neg$taxid)]
+# which taxa will be removed (those with reads less than or equal to zero)
+samp[reads - reads_neg <= 0]
+
+# list of replicates
+reps <- unique(samp$site)
+# add empty column
+samp$reads_blank <- 0
+# fill-in number of reads (from blanks) that will be subtracted
+for(i in 1:length(reps)) {
+  # subset per replicate
+  s <- samp[site == reps[i]]
+  # subset blanks to corresponding blank of replicate
+  b <- blanks[site == unique(s$blank)]
+  
+  # match number of blank reads
+  s$reads_blank <- b$reads[match(s$taxid, b$taxid)]
+  samp[samp$site == reps[i]]$reads_blank <- s$reads_blank
+}
+
+# replace all NAs with 0
+samp$reads_neg[is.na(samp$reads_neg)] <- 0
+samp$reads_blank[is.na(samp$reads_blank)] <- 0
+# get final reads excluding blanks and negative
+samp$reads_fin <- samp$reads - samp$reads_neg - samp$reads_blank
+
+# check number of taxids that will be removed
+a <- samp[reads_blank > 0 | reads_neg > 0, c("site", "taxid", "reads", "reads_neg", "reads_blank", "reads_fin")]
+a
+table(a$site)
+table(a[reads_fin > 0]$site)
+table(a[reads_fin <= 0]$site)
+
+# format for merging with reads from other primers
+temp <- samp[reads_fin > 0, -(13:16)]
+
+# get reads from other primers
+sub <- df[taxid != "0" & primer != "UM"]
+# get number of reads per taxon per replicate (samples)
+oth <- sub[type == "sample", .(reads_fin = .N), by = .(site, primer, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
+#
+data <- rbind(oth, temp)
+
+# vis
+# get number of reads per rank
+pd <- data[, .N, by = .(site, phylum, primer)]
+pd <- pd[N > 10]
+# stacked barpchart
+ggplot(pd, aes(fill = phylum, y = N, x = primer)) + 
+  geom_bar(position= "stack", stat = "identity", width = 0.5) + 
+  ylab("Number of taxa") +
+  labs(fill = "Phylum") + 
+  facet_wrap(~ site) +
+  theme_minimal()
+
+
 
 
 
