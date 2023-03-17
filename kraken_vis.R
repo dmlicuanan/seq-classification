@@ -9,7 +9,9 @@
 # 8. attach other taxonomic information to kraken classifications
 # 9. plot NMDS (site ~ taxonomic level)
 # 10. check variation between replicates 
-# 11. remove reads present in blanks and extraction negative
+# 11. check taxa that are unique, shared, common across replicates
+# 12. remove reads present in blanks and extraction negative
+# 13. check taxa present in replicates
 
 # load packages
 library(data.table)
@@ -692,7 +694,7 @@ ggplot(c,aes(x = NMDS1, y = NMDS2, colour = siteno, shape = primer)) +
 # check variation between replicates 
 # read-in data
 df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_read.RDS")
-# restrict entries to those with replicates (sample sequenced using uniminibarcode primer)
+# restrict entries to those with replicates (samples sequenced using uniminibarcode primer)
 # remove site 4 since it has no replicate
 # remove unclassified reads
 sub <- df[primer == "UM" & type == "sample" & site != "4A" & code == "C"]
@@ -702,18 +704,20 @@ sub <- sub[, .(reads = .N), by = .(site, taxid, taxon, taxon_rank_simp, superkin
 sub$siteno <- gsub("\\D+", "", sub$site)
 unique(sub[,c("site", "siteno")])
 
-# create empty list
+# create empty list for counts
 names <- c("site", "total", "mean", "sem", "common", "shared", "unique")
 l <- sapply(names, function(x) NULL)
+# create empty data.frame where common, shared, unique taxa will be saved
+tl <- data.frame()
 
 # add names of sites with replicates
 l$site <- unique(sub$siteno)
-
+# fill-in counts table
 for(i in 1:length(l$site)) {
   # create subset for site
   temp <- sub[siteno == l$site[i]]
   # set taxonomic rank to be used for making counts 
-  temp$x <- temp$taxid
+  temp$x <- temp$phylum
   
   # remove NAs 
   temp <- temp[!is.na(x)]
@@ -747,6 +751,12 @@ for(i in 1:length(l$site)) {
     # unique 
     unique <- Reduce(union, list(setdiff(a, union(b,c)), setdiff(b, union(a,c)), setdiff(c, union(a,b))))
     l$unique[i] <- length(unique)
+    
+    # compile taxa in list
+    t1 <- data.frame(taxon = common, category = "common")
+    t2 <- data.frame(taxon = shared, category = "shared")
+    t3 <- data.frame(taxon = unique, category = "unique")
+    t <- rbind(t1, t2, t3)
   }
   
   if(length(reps) == 2) {
@@ -763,7 +773,17 @@ for(i in 1:length(l$site)) {
     # unique 
     unique <- union(setdiff(a, b), setdiff(b, a))
     l$unique[i] <- length(unique)
+    
+    # compile taxa in list
+    t1 <- data.frame(taxon = common, category = "common")
+    t3 <- data.frame(taxon = unique, category = "unique")
+    t <- rbind(t1, t3)
   }
+  
+  # add site number to taxa list
+  t$site <- l$site[i]
+  # compile list of taxa and if they are common, shared or unique
+  tl <- rbind(tl, t)
 }
 
 # common, shared, and unique taxa as data frame
@@ -778,6 +798,39 @@ ggplot(dt, aes(fill = variable, y = value, x = site)) +
   scale_fill_brewer(palette="Set3", labels = c("common across all replicates", "shared by at most 2 replicates", "unique to replicate")) +
   geom_text(aes(label = value), colour = "black", position = position_stack(vjust = 0.5), size = 3) +
   theme_minimal() + coord_flip() 
+
+# check taxa that are common, shared, unique
+tl <- data.table(tl)
+# get unique values per category
+unique <- unique(tl[category == "unique"]$taxon)
+common <- unique(tl[category == "common"]$taxon)
+shared <- unique(tl[category == "shared"]$taxon)
+# get unique phyla
+all <- unique(c(unique, shared, common))
+# convert phyla to factor
+all <- factor(all, levels = all)
+
+# get presence-absence of phyla across categories
+pa <- data.table(phylum = all)
+pa$unique <- pa$phylum %in% unique
+pa$shared <- pa$phylum %in% shared
+pa$common <- pa$phylum %in% common
+# melt data table
+pa <- melt(pa, id.vars = 1, measure.vars = 2:4)
+names(pa) <- c("phylum", "category", "presence")
+# convert presence as factor
+pa$presence <- factor(pa$presence, levels = c(TRUE, FALSE))
+
+# create geom_tile (presence-absence matrix)
+ggplot(pa, aes(x = category, y = phylum, fill = presence)) +
+  geom_tile(colour = "black") + 
+  scale_fill_manual(values = c("olivedrab1", "snow2"), labels = c("present", "absent")) +
+  scale_y_discrete(limits = rev) + 
+  scale_x_discrete(position = "top", labels = c("Unique", "Shared", "Common")) +
+  labs(x = "", y = "Phylum", fill = "") + 
+  coord_fixed(ratio = 1/5) +
+  theme_minimal() + 
+  theme(axis.ticks = element_blank())
 
 
 
@@ -799,7 +852,7 @@ samp$blank <- ifelse(grepl("^1|^2", samp$site), "b1B",
 unique(samp[,c("site", "blank")])
 
 # get number of reads per taxon per replicate (extraction negative)
-neg <- sub[type == "negative", .(reads = .N), by = .(site, taxid, merged, primer)]
+neg <- sub[type == "negative", .(reads = .N), by = .(site, taxid)]
 # get number of reads per taxon per replicate (blanks)
 blanks <- sub[type == "blank", .(reads = .N), by = .(site, taxid)]
 
@@ -832,33 +885,47 @@ samp$reads_fin <- samp$reads - samp$reads_neg - samp$reads_blank
 
 # check number of taxids that will be removed
 a <- samp[reads_blank > 0 | reads_neg > 0, c("site", "taxid", "reads", "reads_neg", "reads_blank", "reads_fin")]
-a
-table(a$site)
-table(a[reads_fin > 0]$site)
-table(a[reads_fin <= 0]$site)
+a 
+table(a$site) # taxa per replicate
+table(a[reads_fin > 0]$site) # taxa retained per replicate
+table(a[reads_fin <= 0]$site) # taxa to be removed per replicate
 
-# format for merging with reads from other primers
+# format reads to be retained for merging with reads from other primers
 temp <- samp[reads_fin > 0, -(13:16)]
 
 # get reads from other primers
 sub <- df[taxid != "0" & primer != "UM"]
 # get number of reads per taxon per replicate (samples)
 oth <- sub[type == "sample", .(reads_fin = .N), by = .(site, primer, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
-#
+
+# bind remaining reads from UM with untouched reads from 16S and OPH
 data <- rbind(oth, temp)
+# consider only taxa identified until the class level
+# data <- data[taxon_rank_simp == "class"]
 
-# vis
-# get number of reads per rank
+# get number of taxa per phylum
 pd <- data[, .N, by = .(site, phylum, primer)]
-pd <- pd[N > 10]
-# stacked barpchart
-ggplot(pd, aes(fill = phylum, y = N, x = primer)) + 
-  geom_bar(position= "stack", stat = "identity", width = 0.5) + 
-  ylab("Number of taxa") +
-  labs(fill = "Phylum") + 
-  facet_wrap(~ site) +
-  theme_minimal()
+# get the top most common phyla per primer
+a <- pd[primer == "16S" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum[1:10]
+b <- pd[primer == "OPH" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum[1:10]
+c <- pd[primer == "UM" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum[1:10]
+# get union of top phyla
+phylist <- Reduce(union, list(a, b, c))
+# reduce plotting data to most abundant phyla
+pd <- pd[phylum %in% phylist]
 
+# set colors for barplot
+pal <- "Paired"
+max <- brewer.pal.info[which(rownames(brewer.pal.info) == pal),]$maxcolors
+cols <- colorRampPalette(brewer.pal(max, pal))(length(phylist))
+# stacked barpchart
+ggplot(pd, aes(fill = phylum, y = N, x = site)) + 
+  geom_bar(position= "stack", stat = "identity", width = 0.5) + 
+  scale_fill_manual(values = cols) + 
+  labs(fill = "Phylum", y = "Number of taxa", x = "Sample") + 
+  ylim(c(0, 680)) +
+  facet_grid(. ~ primer, scales = "free_x", space = "free") +
+  theme_bw() + theme(panel.grid = element_blank())
 
 
 
