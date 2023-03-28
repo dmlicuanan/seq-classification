@@ -932,6 +932,75 @@ ggplot(pd, aes(fill = phylum, y = N, x = site)) +
 
 
 
+# plot Manila Bay
+# packages
+library(sf)
+library(ggplot2)
+library(patchwork)
+
+# https://r-spatial.github.io/sf/articles/sf1.html
+# https://rstudio-pubs-static.s3.amazonaws.com/544700_a4314bd8b2d04d66b67e624dc0ccca7d.html
+
+# set working directory
+setwd("D:/Documents/NSRI 2/Datasets/")
+
+# check layers of shape file
+st_layers(dsn = "phl_adm_psa_namria_20200529_shp")
+
+# read shape file
+shp <- read_sf(dsn = "phl_adm_psa_namria_20200529_shp",
+               layer = "phl_admbnda_adm3_psa_namria_20200529",
+               quiet = FALSE)
+# turn off spherical heometry
+# https://github.com/r-spatial/sf/issues/1902
+sf_use_s2(FALSE)
+# set limits of bounding box
+bb <- data.frame(xmin = 120.65, ymin = 14.4, 
+                 xmax = 121.03, ymax = 14.8)
+# crop shape file
+x <- st_crop(shp, 
+             xmin = bb$xmin, ymin = bb$ymin, 
+             xmax = bb$xmax, ymax = bb$ymax)
+
+# read-in coordinates of sites
+readLines("D:/Documents/NGS/input/site_coordinates.csv")
+coords <- read.csv("D:/Documents/NGS/input/site_coordinates.csv",
+                   header = TRUE)[,3:5]
+# get site # only
+coords$site <- gsub("Site ", "", coords$site)
+
+# plot Manila Bay map
+map <- ggplot(x[, 3]) + 
+  geom_point(data = coords, 
+             aes(x = longitude, y = latitude),
+             col = "red") + 
+  geom_text(data = coords,
+            aes(x = longitude, y = latitude, label = site),
+            size = 3, hjust = 1.5, vjust = -0.5) +
+  geom_sf() +
+  scale_x_continuous(breaks = seq(120.6, 121, by = 0.1)) + 
+  scale_y_continuous(position = "right") +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_minimal() +
+  theme(axis.text.y.right = element_text(color = "red"),
+        axis.text.y.left = element_blank())
+
+# stacked barpchart to add
+temp <- pd[primer == "UM"]
+temp$siteno <- gsub("[[:alpha:]]", "", temp$site)
+ggplot(temp, aes(fill = phylum, y = N, x = siteno)) + 
+  geom_bar(position= "stack", stat = "identity", width = 0.5) + 
+  scale_fill_manual(values = cols) + 
+  labs(fill = "Phylum", y = "Number of taxa", x = "Sample") + 
+  ylim(c(0, 680)) +
+  theme_void() +
+  theme(legend.position = "none")
+
+map + inset_element(p, 0.6, 0.6, 1, 1)
+
+
+
+
 
 # SCRATCH
 
