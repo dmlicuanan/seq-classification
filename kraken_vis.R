@@ -832,6 +832,43 @@ ggplot(pa, aes(x = category, y = phylum, fill = presence)) +
   theme_minimal() + 
   theme(axis.ticks = element_blank())
 
+# edit tl table so that "common" and "shared" are lumped together
+# shared will now mean taxa that are shared by at least two replicates
+tl$category <- gsub("common", "shared", tl$category)
+
+# add "absent" category
+# list of all phyla
+phy <- unique(tl$taxon)
+# create df of taxa that are absent in every site
+emp <- data.frame()
+for(i in 1:length(unique(tl$site))) {
+  temp <- tl[site == unique(tl$site)[i]]
+  emp <- rbind(emp, data.frame(taxon = setdiff(phy, temp$taxon),
+                               category = "absent",
+                               site = unique(tl$site)[i]))
+}
+# complete tl with "absent" category
+pd <- rbind(tl, emp)
+# convert category as factor
+pd$category <- factor(pd$category, levels = c("shared", "unique", "absent"))
+
+# original idea for plot:
+ggplot(tl, aes(y = taxon, x = site, fill = category)) +
+  geom_tile() +
+  facet_grid(~category) 
+# combined fill
+ggplot(pd, aes(y = taxon, x = site, fill = category)) +
+  geom_tile(colour = "black") +
+  scale_fill_manual(values = c("darkolivegreen2", "firebrick1", "grey90"),
+                    labels = c("Shared by at least two replicates",
+                               "Unique to one replicate in site",
+                               "Undetected from site")) +
+  scale_y_discrete(limits = rev) +
+  labs(x = "Site", y = "Phylum", fill = "") +
+  coord_fixed(ratio = 1/2) +
+  theme_minimal() +
+  theme(axis.ticks = element_blank())
+
 
 
 
@@ -936,7 +973,9 @@ ggplot(pd, aes(fill = phylum, y = N, x = site)) +
 # packages
 library(sf)
 library(ggplot2)
+library(RColorBrewer)
 library(patchwork)
+library(gridExtra)
 
 # https://r-spatial.github.io/sf/articles/sf1.html
 # https://rstudio-pubs-static.s3.amazonaws.com/544700_a4314bd8b2d04d66b67e624dc0ccca7d.html
@@ -973,11 +1012,13 @@ coords$site <- gsub("Site ", "", coords$site)
 map <- ggplot(x[, 3]) + 
   geom_point(data = coords, 
              aes(x = longitude, y = latitude),
-             col = "red") + 
+             col = "red",
+             size = 3) + 
   geom_text(data = coords,
             aes(x = longitude, y = latitude, label = site),
             size = 3, hjust = 1.5, vjust = -0.5) +
   geom_sf() +
+  
   scale_x_continuous(breaks = seq(120.6, 121, by = 0.1)) + 
   scale_y_continuous(position = "right") +
   labs(x = "Longitude", y = "Latitude") +
@@ -986,17 +1027,117 @@ map <- ggplot(x[, 3]) +
         axis.text.y.left = element_blank())
 
 # stacked barpchart to add
-temp <- pd[primer == "UM"]
-temp$siteno <- gsub("[[:alpha:]]", "", temp$site)
-ggplot(temp, aes(fill = phylum, y = N, x = siteno)) + 
+################################
+# read-in data
+df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_read.RDS")
+
+# cleaning of dataset if blanks and extraction negatives are to be excluded
+# subset df (remove unclassified reads) and restrict to COI samples since only those have blanks and negatives
+sub <- df[taxid != "0" & primer == "UM"]
+
+# get number of reads per taxon per replicate (samples)
+samp <- sub[type == "sample", .(reads = .N), by = .(site, primer, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
+# add corresponding blank per sample
+samp$blank <- ifelse(grepl("^1|^2", samp$site), "b1B", 
+                     ifelse(grepl("^8|^9", samp$site), "b8A", 
+                            ifelse(grepl("^3|^4|^5", samp$site), "b5A", NA)))
+# check assigned blanks
+unique(samp[,c("site", "blank")])
+
+# get number of reads per taxon per replicate (extraction negative)
+neg <- sub[type == "negative", .(reads = .N), by = .(site, taxid)]
+# get number of reads per taxon per replicate (blanks)
+blanks <- sub[type == "blank", .(reads = .N), by = .(site, taxid)]
+
+# get number of extraction negative reads that will be subtracted
+samp$reads_neg <- neg$reads[match(samp$taxid, neg$taxid)]
+# which taxa will be removed (those with reads less than or equal to zero)
+samp[reads - reads_neg <= 0]
+
+# list of replicates
+reps <- unique(samp$site)
+# add empty column
+samp$reads_blank <- 0
+# fill-in number of reads (from blanks) that will be subtracted
+for(i in 1:length(reps)) {
+  # subset per replicate
+  s <- samp[site == reps[i]]
+  # subset blanks to corresponding blank of replicate
+  b <- blanks[site == unique(s$blank)]
+  
+  # match number of blank reads
+  s$reads_blank <- b$reads[match(s$taxid, b$taxid)]
+  samp[samp$site == reps[i]]$reads_blank <- s$reads_blank
+}
+
+# replace all NAs with 0
+samp$reads_neg[is.na(samp$reads_neg)] <- 0
+samp$reads_blank[is.na(samp$reads_blank)] <- 0
+# get final reads excluding blanks and negative
+samp$reads_fin <- samp$reads - samp$reads_neg - samp$reads_blank
+
+# check number of taxids that will be removed
+a <- samp[reads_blank > 0 | reads_neg > 0, c("site", "taxid", "reads", "reads_neg", "reads_blank", "reads_fin")]
+a 
+table(a$site) # taxa per replicate
+table(a[reads_fin > 0]$site) # taxa retained per replicate
+table(a[reads_fin <= 0]$site) # taxa to be removed per replicate
+
+# format UM reads to be retained for merging with reads from other primers
+temp <- samp[reads_fin > 0, -(13:16)]
+# UM reads to be merged with other primers if blanks and negatives will not be removed:
+# temp <- sub[type == "sample", .(reads_fin = .N), by = .(site, primer, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
+
+# get reads from other primers
+sub <- df[taxid != "0" & primer != "UM"]
+# get number of reads per taxon per replicate (samples)
+oth <- sub[type == "sample", .(reads_fin = .N), by = .(site, primer, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
+
+# bind reads from UM with untouched reads from 16S and OPH
+data <- rbind(oth, temp)
+# consider only taxa identified until the class level
+# data <- data[taxon_rank_simp == "class"]
+# add site number
+data$siteno <- gsub("[[:alpha:]]", "", data$site)
+
+# get number of taxa per phylum (per siteno)
+pd <- data[, .N, by = .(siteno, phylum, primer)]
+# get the top most common phyla per primer
+a <- pd[primer == "16S" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum[1:8]
+b <- pd[primer == "OPH" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum[1:8]
+c <- pd[primer == "UM" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum[1:8]
+# get union of top phyla
+phylist <- Reduce(union, list(a, b, c))
+# reduce plotting data to most abundant phyla
+pd <- pd[phylum %in% phylist]
+
+# set order of sites
+pd$siteno <- factor(pd$siteno, levels = c("6", "4", "7", "3", "5", "9", "8", "2", "1"))
+# add location
+pd$location <- ifelse(pd$siteno %in% c("6", "4", "7", "3", "5"), "north", "south")
+
+# set colors for barplot
+pal <- "Paired"
+max <- brewer.pal.info[which(rownames(brewer.pal.info) == pal),]$maxcolors
+cols <- colorRampPalette(brewer.pal(max, pal))(length(phylist))
+# stacked barpchart
+p <- ggplot(pd, aes(fill = phylum, y = N, x = primer)) + 
   geom_bar(position= "stack", stat = "identity", width = 0.5) + 
   scale_fill_manual(values = cols) + 
-  labs(fill = "Phylum", y = "Number of taxa", x = "Sample") + 
-  ylim(c(0, 680)) +
-  theme_void() +
-  theme(legend.position = "none")
+  labs(x = "", fill = "Phylum", y = "Number of taxa") + 
+  ylim(c(0, 1090)) +
+  facet_wrap( ~ siteno, nrow = 2, labeller = ) +
+  theme_linedraw() +
+  theme(panel.grid = element_blank(),
+        legend.position = "left", 
+        axis.text.x = element_text(angle = 90, 
+                                   vjust = 0.5, hjust = 1))
+################################
+map + inset_element(p, -.6, .1, .45, .9, 
+                    clip = TRUE, 
+                    align_to = "plot")
+# grid.arrange(p, map, nrow = 1, ncol = 2)
 
-map + inset_element(p, 0.6, 0.6, 1, 1)
 
 
 
