@@ -490,6 +490,17 @@ p <- ggplot(data, aes(fill = taxon_rank_simp, y = N, x = type)) +
 # plot
 ggplotly(p)
 
+# data summary: check rank composition of reads per primer
+temp <- split(data, data$primer)
+# 16S and OPH
+temp[[1]]$perc <- (temp[[1]]$N/sum(temp[[1]]$N))*100
+temp[[2]]$perc <- (temp[[2]]$N/sum(temp[[2]]$N))*100
+# UM
+um <- split(temp[[3]], temp[[3]]$type)
+for(i in 1:3) {
+  um[[i]]$perc <- (um[[i]]$N/sum(um[[i]]$N))*100
+}
+
 # overall number of taxa per rank
 # number of sites per primer
 temp <- unique(df[,.(site, primer, type)])
