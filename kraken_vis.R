@@ -29,6 +29,26 @@ taxget <- function(ktaxid, rank) {
   if (length(taxon) == 1) { return(taxon) } else { return(NA) }
 }
 
+# modification of taxget:
+# this is so that NA is returned when the rank wanted is more specific than the actual rank of the given ktaxid
+taxget <- function(ktaxid, rank) {
+  # from parent_taxid, get taxid to be used as linker
+  linker <- long[parent_taxid == ktaxid, ]$taxid[1]
+  # restrict to entries of linker taxid
+  sub <- long[taxid == linker]
+  # get row number of rank wanted 
+  r2 <- which(sub$parent_rank == rank)
+  # get rank of ktaxid and find row number
+  krank <- sub[parent_taxid == ktaxid]$parent_rank
+  r1 <- which(sub$parent_rank == krank)
+  
+  # get taxon
+  taxon <- long[taxid == linker & parent_rank == rank, ]$parent_taxon
+  if(length(r1) == 1 & length(r2) == 1) {
+    if(length(taxon) == 1 & (r1 < r2)) { return(taxon) } else { return(NA) }
+  } else { return(NA) }
+}
+
 # read-in files for adding other taxonomic information (long taxonomy table)
 long <- readRDS("D:/Documents/NGS/entrez/taxonomy/taxonomy_long.RDS")
 
@@ -1121,6 +1141,30 @@ c <- pd[primer == "UM" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum[1
 phylist <- Reduce(union, list(a, b, c))
 # reduce plotting data to most abundant phyla
 pd <- pd[phylum %in% phylist]
+
+# get list of families with abundant reads for results section
+temp <- data[, c(2, 3, 5, 8, 11, 13:14)]
+# sum reads
+temp <- temp[, .(reads = sum(reads_fin)), by = .(primer, phylum, family)]
+# order by primer, phylum, then number of reads
+temp <- temp[order(primer, phylum, -reads)]
+# remove read counts that are too few; adjust number per primer
+temp <- temp[reads > 1000]
+# split by primer
+temp <- split(temp, temp$primer)
+temp[[1]] # 16S
+temp[[2]] # OPH
+temp[[3]] # UM
+
+# get echinoderm classes detected by primers
+temp <- data[, c(2, 5, 8, 9, 12:13)]
+# sum reads
+temp <- temp[phylum == "Echinodermata", .(reads = sum(reads_fin)), by = .(primer, taxon_rank_simp, phylum, class, genus)]
+split(temp, temp$primer)
+# why do som entries classified to class have genera attached?
+data[primer == "16S" & phylum == "Echinodermata" & class == "Echinoidea"]
+
+#####
 
 # set order of sites
 pd$siteno <- factor(pd$siteno, levels = c("6", "4", "7", "3", "5", "9", "8", "2", "1"))
