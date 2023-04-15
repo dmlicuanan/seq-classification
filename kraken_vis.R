@@ -45,7 +45,7 @@ taxget <- function(ktaxid, rank) {
   # get taxon
   taxon <- long[taxid == linker & parent_rank == rank, ]$parent_taxon
   if(length(r1) == 1 & length(r2) == 1) {
-    if(length(taxon) == 1 & (r1 < r2)) { return(taxon) } else { return(NA) }
+    if(length(taxon) == 1 & (r1 <= r2)) { return(taxon) } else { return(NA) }
   } else { return(NA) }
 }
 
@@ -1142,6 +1142,12 @@ phylist <- Reduce(union, list(a, b, c))
 # reduce plotting data to most abundant phyla
 pd <- pd[phylum %in% phylist]
 
+# get phyla detected by across all three primers
+a <- pd[primer == "16S" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum
+b <- pd[primer == "OPH" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum
+c <- pd[primer == "UM" & !is.na(phylum), .N, by = .(phylum)][order(-N)]$phylum
+Reduce(intersect, list(a, b, c))
+
 # get list of families with abundant reads for results section
 temp <- data[, c(2, 3, 5, 8, 11, 13:14)]
 # sum reads
@@ -1149,22 +1155,33 @@ temp <- temp[, .(reads = sum(reads_fin)), by = .(primer, phylum, family)]
 # order by primer, phylum, then number of reads
 temp <- temp[order(primer, phylum, -reads)]
 # remove read counts that are too few; adjust number per primer
-temp <- temp[reads > 1000]
+temp <- temp[reads > 10000]
 # split by primer
 temp <- split(temp, temp$primer)
-temp[[1]] # 16S
-temp[[2]] # OPH
-temp[[3]] # UM
+temp[[1]][!is.na(family)] # 16S: 3100
+temp[[2]][!is.na(family)] # OPH: 1000
+temp[[3]][!is.na(family)][order(-reads)] # UM: 10000
 
 # get echinoderm classes detected by primers
 temp <- data[, c(2, 5, 8, 9, 12:13)]
 # sum reads
-temp <- temp[phylum == "Echinodermata", .(reads = sum(reads_fin)), by = .(primer, taxon_rank_simp, phylum, class, genus)]
-split(temp, temp$primer)
-# why do som entries classified to class have genera attached?
-data[primer == "16S" & phylum == "Echinodermata" & class == "Echinoidea"]
-
-#####
+temp <- temp[phylum == "Echinodermata" & !is.na(class), .(reads = sum(reads_fin)), by = .(primer, taxon_rank_simp, phylum, class, genus)]
+# split by primer
+temp <- split(temp, temp$primer)
+# check diversity of echinoderms per primer pair
+# UM:
+p <- temp[[3]]
+p
+unique(p[, c("taxon_rank_simp", "class")])[order(class)]
+unique(df[genus == "Archaster", c("taxon", "genus")])
+unique(df[genus == "Ophiacantha", c("taxon", "genus")])
+df[taxon_rank_simp == "genus" & is.na(genus) & phylum == "Echinodermata", c("taxon", "genus")]
+# 16S:
+p <- temp[[1]]
+unique(df[genus %in% c("Holothuria", "Ophiocomina", "Amphipholis"), "taxon"])
+# OPH:
+p <- temp[[2]]
+df[genus == "Ophiocreas"]
 
 # set order of sites
 pd$siteno <- factor(pd$siteno, levels = c("6", "4", "7", "3", "5", "9", "8", "2", "1"))
