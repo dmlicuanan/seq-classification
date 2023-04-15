@@ -511,6 +511,7 @@ p <- ggplot(data, aes(fill = taxon_rank_simp, y = N, x = type)) +
 ggplotly(p)
 
 # data summary: check rank composition of reads per primer
+data <- df[, .N, by = .(taxon_rank_simp, type, primer)][order(-taxon_rank_simp)]
 temp <- split(data, data$primer)
 # 16S and OPH
 temp[[1]]$perc <- (temp[[1]]$N/sum(temp[[1]]$N))*100
@@ -1057,7 +1058,7 @@ map <- ggplot(x[, 3]) +
   theme(axis.text.y.right = element_text(color = "red"),
         axis.text.y.left = element_blank())
 
-# stacked barpchart to add
+# stacked bar chart to add:
 ################################
 # read-in data
 df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_read.RDS")
