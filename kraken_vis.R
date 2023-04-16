@@ -596,7 +596,7 @@ df$genus <- list$genus[match(df$taxid, list$taxid)]
 
 
 # ordination 
-# read-in data
+# read-in data (with blanks)
 df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_read.RDS")
 
 # subset data
@@ -661,10 +661,13 @@ ggplot(c,aes(x = NMDS1, y = NMDS2, colour = siteno, shape = group)) +
 
 
 
-
-
+# still ordination:
 # group by primer
+# read-in data (sans blanks and negatives)
+df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_taxon_sans_negatives.RDS")
+
 # summarize number of reads by site and primer
+# reads here not really indicative of reads number since df is per taxon, not per read
 temp <- df[, .(reads = .N), by = .(site, primer, taxid)]
 temp <- df[, .(reads = .N), by = .(site, primer, phylum)]
 temp <- df[, .(reads = .N), by = .(site, primer, class)]
@@ -916,7 +919,8 @@ sub <- df[taxid != "0" & primer == "UM"]
 samp <- sub[type == "sample", .(reads = .N), by = .(site, primer, taxid, taxon, taxon_rank_simp, superkingdom, kingdom, phylum, class, order, family, genus)]
 # add corresponding blank per sample
 samp$blank <- ifelse(grepl("^1|^2", samp$site), "b1B", 
-                     ifelse(grepl("^8|^9", samp$site), "b8A", "b5A"))
+                     ifelse(grepl("^8|^9", samp$site), "b8A", 
+                            ifelse(grepl("^3|^4|^5", samp$site), "b5A", NA)))
 # check assigned blanks
 unique(samp[,c("site", "blank")])
 
@@ -1131,6 +1135,8 @@ data <- rbind(oth, temp)
 # data <- data[taxon_rank_simp == "class"]
 # add site number
 data$siteno <- gsub("[[:alpha:]]", "", data$site)
+# save as RDS
+# saveRDS(data, "D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_taxon_sans_negatives.RDS")
 
 # get number of taxa per phylum (per siteno)
 pd <- data[, .N, by = .(siteno, phylum, primer)]
