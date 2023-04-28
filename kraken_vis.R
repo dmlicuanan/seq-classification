@@ -721,7 +721,12 @@ ggplot(c,aes(x = NMDS1, y = NMDS2, colour = siteno, shape = primer)) +
   theme(panel.grid = element_blank()) + 
   coord_equal() + 
   scale_color_brewer(palette="Paired")
+# assign plot above using taxids to t
+# assign plot above using family to f
 
+# combine ggplots with shared legend using patchwork package
+combined <- t + f & theme(legend.position = "right")
+combined + plot_layout(guides = "collect")
 
 
 
@@ -1217,6 +1222,27 @@ map + inset_element(p, -.6, .1, .45, .9,
                     align_to = "plot")
 # grid.arrange(p, map, nrow = 1, ncol = 2)
 
+# create table for family and species richness of taxa detections to the species level
+# get number of unique taxa per phylum per primer
+sub <- unique(df[taxon_rank_simp == "species" & !is.na(phylum), c("superkingdom", "phylum", "taxon", "primer")])
+# species counts
+spec <- sub[, .(species = .N), keyby = .(primer, superkingdom, phylum)]
+
+# get unique families per phylum per primer
+sub <- unique(df[taxon_rank_simp == "species" & !is.na(phylum), c("superkingdom", "phylum", "family", "primer")])
+# family counts (restricted to detections to the species level)
+fam <- sub[, .(family = .N), keyby = .(primer, superkingdom, phylum)]
+
+# combine species and family counts
+tab <- merge(fam, spec, by = c("primer", "superkingdom", "phylum"))
+tab <- dcast(tab, superkingdom + phylum ~ primer, value.var = c("family", "species"))
+# reorder columns by primer
+tab <- tab[, c(1, 2, 5, 8, 3, 6, 4, 7)]
+# replace all NA with blank
+tab[is.na(tab)] <- "-"
+
+# write table
+# write.csv(tab, file = "D:/Documents/NGS/out/Manila_Bay/transients/family_and_species_counts.csv", row.names = FALSE)
 
 
 
