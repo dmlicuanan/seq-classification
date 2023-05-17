@@ -344,8 +344,8 @@ dt[phylum == "Echinodermata" & rank == "species"] # 1457
 temp <- dt[phylum == "Echinodermata" & rank == "species" & coi_N > 0] # 1456
 temp <- dt[phylum == "Echinodermata" & rank == "species" & sxs_N > 0] # 42
 # number of species fastas
-sum(temp$coi_N)
-sum(temp$sxs_N)
+sum(temp$coi_N) # 17878
+sum(temp$sxs_N) # 85
 # distribution of classes
 table(temp$class)
 # without restriction to rank
