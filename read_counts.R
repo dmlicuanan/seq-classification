@@ -110,6 +110,10 @@ lapply(list(dt$process, dt$stage, dt$set), unique)
 # check values of set
 unique(dt[, c("set", "process")])
 
+# change levels of primers
+dt$primer <- factor(dt$primer, levels = c("16S", "OPH", "UM"))
+levels(dt$primer) <- c("universal 16S", "echinoderm 16S", "COI mini-barcode")
+
 # remove reads which did not undergo merging
 m <- dt[set != "No merging"]
 # remove blanks and negatives
@@ -139,6 +143,8 @@ pd <- m[set == "Merged"]
 pd <- m[set == "Unmerged"] # add linetype = "dashed" outside geom_line's aes
 # subset for inset plot
 pd <- m[set == "Merged" & primer != "UM"]
+# subset for inset plot (after changing level)
+pd <- m[set == "Merged" & primer != "COI mini-barcode"]
 
 # plot of number of reads remaining from samples at each stage of processing
 ggplot(pd, aes(x = stage, 
@@ -220,3 +226,4 @@ ggplot(pd, aes(x = stage,
                                 "Classification")) +
   theme_minimal() +  
   theme(panel.grid.minor.x = element_blank())
+
