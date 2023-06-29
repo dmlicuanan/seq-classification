@@ -483,6 +483,10 @@ df$taxon_rank_simp <- factor(df$taxon_rank_simp, levels = unique(simp))
 # convert type as factor
 df$type <- factor(df$type, levels = c("sample", "blank", "negative"))
 
+# change levels of primers
+df$primer <- factor(df$primer, levels = c("UM", "16S", "OPH"))
+levels(df$primer) <- c("COI mini-barcode", "universal 16S", "echinoderm 16S")
+
 
 
 
@@ -490,6 +494,8 @@ df$type <- factor(df$type, levels = c("sample", "blank", "negative"))
 # resolution of kraken classification
 # get number of reads per rank
 data <- df[, .N, by = .(taxon_rank_simp, type)][order(-taxon_rank_simp)]
+# get number of reads per rank per primer and restrict to samples
+data <- df[type == "sample", .N, by = .(taxon_rank_simp, type, primer)][order(-taxon_rank_simp)]
 # plot colors
 ncolor <- length(unique(data$taxon_rank_simp))
 getPalette <- colorRampPalette(brewer.pal(9, "Set1"))
@@ -507,8 +513,18 @@ p <- ggplot(data, aes(fill = taxon_rank_simp, y = N, x = type)) +
   labs(fill = "rank") + 
   scale_fill_manual(values = getPalette(ncolor)) +
   theme_minimal()
+# stacked barpchart for samples only, with primer at x-axis
+p <- ggplot(data, aes(fill = taxon_rank_simp, y = N, x = primer)) + 
+  geom_bar(position= "stack", stat = "identity", width = 0.5) + 
+  ylab("Number of reads classified to rank") +
+  labs(fill = "Rank", x = "Primer") + 
+  scale_fill_manual(values = getPalette(ncolor)) +
+  theme_minimal()
 # plot
 ggplotly(p)
+
+
+
 
 # data summary: check rank composition of reads per primer
 data <- df[, .N, by = .(taxon_rank_simp, type, primer)][order(-taxon_rank_simp)]
@@ -666,6 +682,10 @@ ggplot(c,aes(x = NMDS1, y = NMDS2, colour = siteno, shape = group)) +
 # read-in data (sans blanks and negatives)
 df <- readRDS("D:/Documents/NGS/out/Manila_Bay/transients/compiled_kraken_stdout_per_taxon_sans_negatives.RDS")
 
+# change levels of primers
+df$primer <- factor(df$primer, levels = c("UM", "16S", "OPH"))
+levels(df$primer) <- c("COI mini-barcode", "universal 16S", "echinoderm 16S")
+
 # summarize number of reads by site and primer
 # reads here not really indicative of reads number since df is per taxon, not per read
 temp <- df[, .(reads = .N), by = .(site, primer, taxid)]
@@ -720,7 +740,7 @@ ggplot(c,aes(x = NMDS1, y = NMDS2, colour = siteno, shape = primer)) +
   theme_bw() +
   theme(panel.grid = element_blank()) + 
   coord_equal() + 
-  scale_color_brewer(palette="Paired")
+  scale_color_brewer(palette="Paired") 
 # assign plot above using taxids to t
 # assign plot above using family to f
 
@@ -1067,6 +1087,21 @@ map <- ggplot(x[, 3]) +
   theme(axis.text.y.right = element_text(color = "red"),
         axis.text.y.left = element_blank())
 
+# map for site coordinates
+ggplot(x[, 3]) + 
+  geom_point(data = coords, 
+             aes(x = longitude, y = latitude),
+             col = "red",
+             size = 3) + 
+  geom_text(data = coords,
+            aes(x = longitude, y = latitude, label = site),
+            size = 3, hjust = 1.5, vjust = -0.5) +
+  geom_sf() +
+  
+  scale_x_continuous(breaks = seq(120.6, 121, by = 0.1)) + 
+  labs(x = "Longitude", y = "Latitude") +
+  theme_minimal() 
+
 # stacked bar chart to add:
 ################################
 # read-in data
@@ -1199,6 +1234,10 @@ df[genus == "Ophiocreas"]
 pd$siteno <- factor(pd$siteno, levels = c("6", "4", "7", "3", "5", "9", "8", "2", "1"))
 # add location
 pd$location <- ifelse(pd$siteno %in% c("6", "4", "7", "3", "5"), "north", "south")
+
+# change levels of primers
+pd$primer <- factor(pd$primer, levels = c("UM", "16S", "OPH"))
+levels(pd$primer) <- c("COI mini-barcode", "universal 16S", "echinoderm 16S")
 
 # set colors for barplot
 pal <- "Paired"
