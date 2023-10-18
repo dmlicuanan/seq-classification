@@ -9,8 +9,8 @@
 library(bold)
 
 # taxize authenthication -- run everytime: but needed only for use of taxize package
-# API key from amlicuanan account at https://www.ncbi.nlm.nih.gov/account/settings/
-# options(ENTREZ_KEY = "7d21c9bc180e2c7f4c118b010e6f236f3008")
+# API key from NCBI account at https://www.ncbi.nlm.nih.gov/account/settings/
+# options(ENTREZ_KEY = "API_KEY")
 
 # set working directory to where wormstaxlist is located 
 setwd("D:/Documents/NGS/entrez/")
