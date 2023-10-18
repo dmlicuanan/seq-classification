@@ -52,8 +52,9 @@ time parallel -j 4 --delay 0.34 'esearch -db nuccore -query {} | efetch -format 
 # working directory for trial 
 cd /mnt/d/Documents/NGS/entrez/tmp/ncbi_trial
 
-# use API key of amlicuanan@alum.up.edu.ph = 81af93ade140a45a355b621d22a8692a5408
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account 
+# replace API_KEY below with API key
+export NCBI_API_KEY=API_KEY
 
 # create directory where GenBank files will be saved:
 mkdir wormstaxlist_gb
@@ -126,15 +127,8 @@ time parallel -j 10 --delay 1.1 mydownload :::: subset 2>&1 | tee -a log_ncbi.tx
 # set working directory (OneDrive)
 cd /mnt/c/Users/Ardea\ Licuanan/OneDrive/2022_kraken/
 
-# use API key of amlicuanan@alum.up.edu.ph 
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
-# other API keys:
-# 7d21c9bc180e2c7f4c118b010e6f236f3008 
-# f4aef0d264bef47873c8c44329570bda3d08 
-# 532b235a5e1021b4e209f1d22f6b69258e08 
-# bfeb59eb00909bc3522de6eb2214bd769508 
-# beccc4a5d3d81297a8625322e2cce745a508 
-# c0f0673298193bfbb7dfacb8b362375a2008 
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 
 # create directory where GenBank files will be saved:
 mkdir wormstaxlist_gb
@@ -179,8 +173,8 @@ time parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_fin 2>&1 | tee -a l
 # set working directory 
 cd /mnt/d/Documents/NGS/entrez/
 
-# use API key of amlicuanan@alum.up.edu.ph 
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 
 # create directory where GenBank files will be saved:
 # mkdir wormstaxlist_gb
@@ -340,7 +334,8 @@ echo "$count $spec" >> counts_wormstaxlist_fin_for_counts
 export -f hitcount
 
 # initial run started 2:08 PM 2022/08/09
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 parallel -j 10 --delay 1 --keep-order hitcount :::: wormstaxlist_fin_for_counts 2>&1 | tee -a log_counts.txt
 
 # there are duplicates in wormstaxlist_fin_for_counts (190,627); we remove those without sorting:
@@ -397,7 +392,8 @@ comm <(sed 's/ \[ORGN.*//' wormstaxlist_fin_for_counts | sort -u) <(grep '^[0-9]
 grep '^[1-9]' counts_wormstaxlist_fin_for_counts | cut -d ' ' -f 2- | sed 's/$/[ORGN] AND (CO1 [GENE] OR COI [GENE] OR COX1 [GENE] OR COXI [GENE])/' | sort -u > wormstaxlist_fin_whits_missed
 # use mydownload function again to download GBs
 cd /mnt/d/Documents/NGS/entrez/
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 # function for downloading GB flat file
 mydownload() {
 query="$1"
@@ -466,7 +462,8 @@ cp $(find ./subset.*/ -name "*_ncbi.gb") compiled_gb
 # re-download badfiles discovered in gb_parse (listed in wormstaxlist_badfiles)
 # use mydownload function again to download GBs
 cd /mnt/d/Documents/NGS/entrez/
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 # function for downloading GB flat file
 mydownload() {
 query="$1"
@@ -504,8 +501,8 @@ mv *_ncbi.gb compiled_gb
 # set working directory 
 cd /mnt/d/Documents/NGS/entrez/
 
-# use API key of amlicuanan@alum.up.edu.ph 
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 
 # create directory where GenBank files will be saved:
 # mkdir -p wormstaxlist_gb_16S/raw
@@ -579,8 +576,8 @@ parallel -j 10 --delay 1.1 mydownload :::: wormstaxlist_16S_rerun 2>&1 | tee -a 
 cd /mnt/d/Documents/NGS/entrez/
 # set variable
 export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
-# use API key of amlicuanan@alum.up.edu.ph 
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 
 # check if there are taxa with special characters since all special characters must be URL encoded 
 # grep -v "^[a-zA-Z -.]*$" marestaxlist_uniq 
@@ -633,7 +630,8 @@ echo "$count $spec" >> counts_worms_mares_taxlist_16S
 export -f hitcount
 
 # initial run started 2022/10/21 10:33AM
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 parallel -j 10 --delay 1 --keep-order hitcount :::: worms_mares_taxlist_16S 2>&1 | tee -a log_counts_16S.txt
 
 # for successive runs:
@@ -687,8 +685,8 @@ comm <(grep '^[1-9]' /mnt/d/Documents/NGS/entrez/counts_worms_mares_taxlist_16S 
 # download species missed
 # set working directory 
 cd /mnt/d/Documents/NGS/entrez/
-# use API key of amlicuanan@alum.up.edu.ph 
-export NCBI_API_KEY=81af93ade140a45a355b621d22a8692a5408
+# use API key from NCBI account (replace API_KEY below with API key)
+export NCBI_API_KEY=API_KEY
 # set variable
 export gbout=/mnt/d/Documents/NGS/entrez/wormstaxlist_gb_16S
 
